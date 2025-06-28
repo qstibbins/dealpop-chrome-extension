@@ -122,6 +122,52 @@ function extractProductInfo() {
   };
 }
 
+function injectDealPopButton() {
+  // Avoid injecting multiple times
+  if (document.getElementById('dealpop-btn')) return;
+
+  // Find a reference element (e.g., product image or title)
+  const productImage = document.querySelector('img[src*="product"], img');
+  const refElement = productImage || document.querySelector('h1');
+
+  if (!refElement) return;
+
+  // Create the button
+  const btn = document.createElement('div');
+  btn.id = 'dealpop-btn';
+  btn.innerText = 'DP'; // Or use an <img> for your logo
+  btn.style.position = 'absolute';
+  btn.style.zIndex = 9999;
+  btn.style.background = '#fff';
+  btn.style.borderRadius = '50%';
+  btn.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
+  btn.style.width = '40px';
+  btn.style.height = '40px';
+  btn.style.display = 'flex';
+  btn.style.alignItems = 'center';
+  btn.style.justifyContent = 'center';
+  btn.style.cursor = 'pointer';
+
+  // Position it near the reference element
+  const rect = refElement.getBoundingClientRect();
+  btn.style.top = `${window.scrollY + rect.top + 10}px`;
+  btn.style.left = `${window.scrollX + rect.right + 10}px`;
+
+  // Optional: Add click handler
+  btn.onclick = () => {
+    alert('DealPop button clicked!');
+  };
+
+  document.body.appendChild(btn);
+}
+
+// Run after DOM is loaded
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', injectDealPopButton);
+} else {
+  injectDealPopButton();
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.command === "extractProductInfo") {
     const data = extractProductInfo();
