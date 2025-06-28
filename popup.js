@@ -36,3 +36,46 @@ document.addEventListener("DOMContentLoaded", async () => {
     document.getElementById('product-source').textContent = (new URL(productInfo.url)).hostname;
   });
 });
+
+// Login handler
+document.getElementById('login-btn')?.addEventListener('click', async () => {
+  const email = document.getElementById('email').value;
+  const password = document.getElementById('password').value;
+
+  const res = await fetch('https://your-api.com/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password })
+  });
+
+  const data = await res.json();
+  if (data.token) {
+    chrome.storage.local.set({ token: data.token }, () => location.reload());
+  } else {
+    alert("Login failed");
+  }
+});
+
+// Track product
+document.getElementById('track-btn')?.addEventListener('click', async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  chrome.tabs.sendMessage(tab.id, { command: "extractProductInfo" }, async (productInfo) => {
+    chrome.storage.local.get("token", async ({ token }) => {
+      const res = await fetch("https://your-api.com/api/tracked-products", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(productInfo)
+      });
+
+      const data = await res.json();
+      if (data.id) {
+        alert("Tracking started: " + data.id);
+      } else {
+        alert("Failed to start tracking.");
+      }
+    });
+  });
+});
