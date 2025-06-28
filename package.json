@@ -1,0 +1,14 @@
+{
+  "name": "deal-pop-chrome-extension",
+  "version": "1.0.0",
+  "description": "DealPop Chrome Extension",
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "dev": "npm run build && npm run build:watch"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.254",
+    "typescript": "^5.0.0"
+  }
+} 
