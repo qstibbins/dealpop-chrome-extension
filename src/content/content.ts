@@ -5,9 +5,63 @@ console.log('🎯 DealPop content script loaded!');
 // Inline the necessary functions to avoid module imports
 function extractProductInfo() {
   const getPrice = () => {
+    // Amazon-specific price selectors (higher priority)
+    const amazonSelectors = [
+      '.a-price-whole',
+      '.a-price .a-offscreen',
+      '[data-a-color="price"] .a-offscreen',
+      '.a-price-range .a-offscreen',
+      '.a-price-symbol + span',
+      '.a-price .a-price-whole',
+      '.a-price .a-price-fraction'
+    ];
+    
+    // Target-specific price selectors
+    const targetSelectors = [
+      '[data-testid="product-price"]',
+      '[data-testid="price-current"]',
+      '.price-current',
+      '.price',
+      '[class*="price"]'
+    ];
+    
+    // Walmart-specific price selectors
+    const walmartSelectors = [
+      '[data-price-type="finalPrice"]',
+      '.price-characteristic',
+      '.price-main',
+      '[class*="price"]'
+    ];
+    
+    // Try Amazon selectors first
+    for (const selector of amazonSelectors) {
+      const element = document.querySelector(selector);
+      if (element && containsPrice(element.textContent || '')) {
+        return getSelectorAndValue(element);
+      }
+    }
+    
+    // Try Target selectors
+    for (const selector of targetSelectors) {
+      const element = document.querySelector(selector);
+      if (element && containsPrice(element.textContent || '')) {
+        return getSelectorAndValue(element);
+      }
+    }
+    
+    // Try Walmart selectors
+    for (const selector of walmartSelectors) {
+      const element = document.querySelector(selector);
+      if (element && containsPrice(element.textContent || '')) {
+        return getSelectorAndValue(element);
+      }
+    }
+    
+    // Generic semantic selectors
     const semantic = document.querySelector('[itemprop*="price"], [class*="price"], [id*="price"]');
     if (semantic && containsPrice(semantic.textContent || '')) return getSelectorAndValue(semantic);
 
+    // Fallback: search all elements for price patterns
     const allElements = Array.from(document.querySelectorAll('body *')).filter(el =>
       el.textContent && containsPrice(el.textContent)
     );

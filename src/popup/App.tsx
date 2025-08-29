@@ -98,6 +98,17 @@ const App: React.FC<AppProps> = () => {
       }
       
       setProductInfo(productInfo);
+      
+      // Auto-fill price goal if price was extracted
+      if (productInfo.price?.value) {
+        // Extract just the numeric price value
+        const priceMatch = productInfo.price.value.match(/[\d,]+(\.\d{2})?/);
+        if (priceMatch) {
+          const numericPrice = priceMatch[0].replace(/,/g, '');
+          setPriceGoal(numericPrice);
+          console.log('💰 Auto-filled price goal:', numericPrice);
+        }
+      }
     });
   };
 
@@ -452,7 +463,7 @@ const App: React.FC<AppProps> = () => {
               {productInfo?.title?.value || "Product Name"}
             </div>
             <div className="text-xl font-bold text-gray-800 mb-0.5">
-              {productInfo?.price?.value ? `$${productInfo.price.value}` : ""}
+              {productInfo?.price?.value ? productInfo.price.value : ""}
             </div>
             <div className="text-sm text-gray-500 mb-2">
               {productInfo?.url ? new URL(productInfo.url).hostname : ""}
