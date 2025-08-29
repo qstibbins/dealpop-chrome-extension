@@ -110,9 +110,9 @@ export function extractProductInfo(): ProductInfo {
         path.unshift(selector);
         break;
       } else {
-        let sibling = currentEl, nth = 1;
+        let sibling: Element | null = currentEl, nth = 1;
         while (sibling = sibling.previousElementSibling) {
-          if (sibling.nodeName.toLowerCase() === selector) nth++;
+          if (sibling && sibling.nodeName.toLowerCase() === selector) nth++;
         }
         selector += `:nth-of-type(${nth})`;
       }
