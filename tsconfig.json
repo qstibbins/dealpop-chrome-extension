@@ -8,13 +8,14 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "outDir": "./",
-    "rootDir": "./background",
+    "rootDir": "./src",
     "declaration": false,
     "sourceMap": false,
     "allowSyntheticDefaultImports": true
   },
   "include": [
-    "background/**/*"
+    "src/background/**/*",
+    "src/content/**/*"
   ],
   "exclude": [
     "node_modules",
