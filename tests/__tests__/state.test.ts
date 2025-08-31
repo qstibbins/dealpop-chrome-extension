@@ -1,4 +1,4 @@
-import { State } from '../background/state';
+import { State } from '../../src/background/state';
 
 (globalThis.chrome as any) = {
   storage: {
@@ -10,16 +10,17 @@ import { State } from '../background/state';
 };
 
 describe('State', () => {
-  test('loads token from storage on construction', () => {
-    const state = new State();
-    expect(chrome.storage.local.get).toHaveBeenCalledWith(['token'], expect.any(Function));
-    // Simulate async behavior
-    setTimeout(() => {
-      expect(state.token).toBe('stored-token');
-    }, 0);
+  beforeEach(() => {
+    chrome.storage.local.get.mockClear();
+    chrome.storage.local.set.mockClear();
   });
 
-  test('save writes token to storage', () => {
+  test('loads token from storage on initialization', () => {
+    new State();
+    expect(chrome.storage.local.get).toHaveBeenCalledWith(['token'], expect.any(Function));
+  });
+
+  test('saves token to storage', () => {
     const state = new State();
     state.token = 'new-token';
     state.save();

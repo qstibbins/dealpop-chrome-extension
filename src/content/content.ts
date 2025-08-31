@@ -5,6 +5,18 @@ console.log('🎯 DealPop content script loaded!');
 // Inline the necessary functions to avoid module imports
 function extractProductInfo() {
   const getPrice = () => {
+    // First attempt: Try structured data extraction
+    const structuredPrice = extractPriceFromStructuredData();
+    if (structuredPrice !== null) {
+      console.log('🎯 Found price from structured data:', structuredPrice);
+      return {
+        selector: 'structured-data',
+        value: `$${structuredPrice}`
+      };
+    }
+    
+    console.log('🎯 No structured data found, falling back to DOM selectors');
+    
     // Amazon-specific price selectors (higher priority)
     const amazonSelectors = [
       '.a-price-whole',
@@ -70,6 +82,65 @@ function extractProductInfo() {
     }
 
     return undefined;
+  };
+
+  // Helper function to extract price from structured data
+  const extractPriceFromStructuredData = () => {
+    console.log('🎯 Attempting structured data extraction...');
+    
+    // Look for JSON-LD structured data
+    const jsonLdScripts = document.querySelectorAll('script[type="application/ld+json"]');
+    console.log('🎯 Found', jsonLdScripts.length, 'JSON-LD scripts');
+    
+    for (const script of jsonLdScripts) {
+      try {
+        const data = JSON.parse(script.textContent || '');
+        console.log('🎯 Parsed JSON-LD data:', data);
+        
+        // Handle both single object and array of objects
+        const items = Array.isArray(data) ? data : [data];
+        
+        for (const item of items) {
+          console.log('🎯 Checking item:', item['@type']);
+          // Check if it's a Product schema
+          if (item['@type'] === 'Product' || item['@type'] === 'http://schema.org/Product') {
+            console.log('🎯 Found Product schema');
+            // Look for offers with price
+            if (item.offers) {
+              const offers = Array.isArray(item.offers) ? item.offers : [item.offers];
+              console.log('🎯 Found offers:', offers);
+              
+              for (const offer of offers) {
+                console.log('🎯 Checking offer:', offer);
+                if (offer.price) {
+                  const price = parseFloat(offer.price);
+                  console.log('🎯 Found price:', price);
+                  if (!isNaN(price) && price > 0) {
+                    return price;
+                  }
+                }
+              }
+            }
+            
+            // Also check for direct price property
+            if (item.price) {
+              const price = parseFloat(item.price);
+              console.log('🎯 Found direct price:', price);
+              if (!isNaN(price) && price > 0) {
+                return price;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error('🎯 Error parsing JSON-LD:', e);
+        // Continue to next script if JSON parsing fails
+        continue;
+      }
+    }
+    
+    console.log('🎯 No structured data found');
+    return null; // No structured data found
   };
 
   const getTitle = () => {
