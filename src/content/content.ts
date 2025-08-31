@@ -110,15 +110,28 @@ function extractProductInfo() {
               const offers = Array.isArray(item.offers) ? item.offers : [item.offers];
               console.log('🎯 Found offers:', offers);
               
+              // Smart price selection logic
+              const validPrices = [];
               for (const offer of offers) {
                 console.log('🎯 Checking offer:', offer);
                 if (offer.price) {
                   const price = parseFloat(offer.price);
                   console.log('🎯 Found price:', price);
                   if (!isNaN(price) && price > 0) {
-                    return price;
+                    validPrices.push(price);
                   }
                 }
+              }
+              
+              if (validPrices.length > 0) {
+                // For Walmart specifically: prefer the higher price (main product price)
+                // over lower prices (shipping, add-ons, etc.)
+                const sortedPrices = validPrices.sort((a, b) => b - a);
+                const selectedPrice = sortedPrices[0];
+                
+                console.log('🎯 All valid prices found:', validPrices);
+                console.log('🎯 Selected highest price:', selectedPrice);
+                return selectedPrice;
               }
             }
             
