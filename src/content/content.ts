@@ -846,16 +846,35 @@ function extractProductInfo() {
       '[data-amount]',
       '[class*="amount"]',
       '[class*="cost"]',
-      '[class*="value"]'
+      '[class*="value"]',
+      '[class*="retail"]',
+      '[class*="sale"]',
+      '[class*="current"]',
+      '[class*="now"]',
+      '[class*="final"]',
+      '[data-testid*="price"]',
+      '[data-testid*="amount"]',
+      '[aria-label*="price"]',
+      '[title*="price"]'
     ];
     
     for (const selector of universalSelectors) {
       const element = document.querySelector(selector);
       if (element && containsPrice(element.textContent || '')) {
-        console.log('🎯 Universal selector found price:', selector);
+        console.log('🎯 Universal selector found price:', selector, element.textContent?.trim());
         return getSelectorAndValue(element);
       }
     }
+    
+    // Enhanced debugging: log all elements with price-like text
+    console.log('🎯 Debugging: Searching for price elements...');
+    const allPriceElements = Array.from(document.querySelectorAll('body *'))
+      .filter(el => el.textContent && containsPrice(el.textContent));
+    
+    console.log('🎯 Found', allPriceElements.length, 'elements with price patterns:');
+    allPriceElements.slice(0, 10).forEach((el, i) => {
+      console.log(`  ${i + 1}. "${el.textContent?.trim()}" (class: "${el.className}", id: "${el.id}")`);
+    });
     
     // Last resort: scan all text with scoring
     const allElements = Array.from(document.querySelectorAll('body *'))
@@ -870,32 +889,53 @@ function extractProductInfo() {
     return undefined;
   };
 
-  // Simple price likelihood scoring for universal fallback
+  // Enhanced price likelihood scoring for universal fallback
   const getPriceLikelihoodScore = (element: Element): number => {
     let score = 0;
     const text = element.textContent || '';
     const className = element.className || '';
     const id = element.id || '';
+    const tagName = element.tagName.toLowerCase();
     
     // Positive signals
-    if (/\bprice\b/i.test(className)) score += 3;
-    if (/\bprice\b/i.test(id)) score += 3;
-    if (/\bcurrent\b/i.test(className)) score += 2;
-    if (/\bnow\b/i.test(className)) score += 2;
-    if (/\bsale\b/i.test(className)) score += 2;
-    if (/\bfinal\b/i.test(className)) score += 2;
+    if (/\bprice\b/i.test(className)) score += 5;
+    if (/\bprice\b/i.test(id)) score += 5;
+    if (/\bcurrent\b/i.test(className)) score += 4;
+    if (/\bnow\b/i.test(className)) score += 4;
+    if (/\bsale\b/i.test(className)) score += 3;
+    if (/\bfinal\b/i.test(className)) score += 3;
+    if (/\bretail\b/i.test(className)) score += 2;
+    if (/\bamount\b/i.test(className)) score += 2;
+    if (/\bcost\b/i.test(className)) score += 2;
+    if (/\bvalue\b/i.test(className)) score += 2;
     
     // Negative signals
-    if (/\bstrike\b/i.test(className)) score -= 3;
-    if (/\bwas\b/i.test(className)) score -= 3;
-    if (/\blist\b/i.test(className)) score -= 3;
-    if (/\boriginal\b/i.test(className)) score -= 3;
-    if (/\bmsrp\b/i.test(className)) score -= 3;
-    if (/\bcompare\b/i.test(className)) score -= 2;
+    if (/\bstrike\b/i.test(className)) score -= 5;
+    if (/\bwas\b/i.test(className)) score -= 5;
+    if (/\blist\b/i.test(className)) score -= 5;
+    if (/\boriginal\b/i.test(className)) score -= 5;
+    if (/\bmsrp\b/i.test(className)) score -= 5;
+    if (/\bcompare\b/i.test(className)) score -= 3;
+    if (/\bshipping\b/i.test(className)) score -= 3;
+    if (/\btax\b/i.test(className)) score -= 3;
     
-    // Proximity to buy buttons (simple heuristic)
-    const buyButton = element.closest('body')?.querySelector('button:not([disabled])');
-    if (buyButton && buyButton.textContent?.match(/buy|add to cart|checkout/i)) {
+    // Tag-based scoring
+    if (tagName === 'span' && /\$[\d,]+(\.\d{2})?/.test(text)) score += 2;
+    if (tagName === 'div' && /\$[\d,]+(\.\d{2})?/.test(text)) score += 1;
+    
+    // Text content scoring
+    if (text.match(/^\$[\d,]+(\.\d{2})?$/)) score += 3; // Exact price format
+    if (text.match(/^[\d,]+(\.\d{2})?\s*USD$/)) score += 2; // Price with currency
+    
+    // Proximity to buy buttons (improved heuristic)
+    const buyButton = element.closest('body')?.querySelector('button:not([disabled]), input[type="submit"], a[href*="cart"], a[href*="checkout"]');
+    if (buyButton && buyButton.textContent?.match(/buy|add to cart|checkout|purchase/i)) {
+      score += 2;
+    }
+    
+    // Proximity to product title
+    const productTitle = element.closest('body')?.querySelector('h1, [class*="title"], [class*="product"]');
+    if (productTitle && element.closest('body')?.contains(productTitle)) {
       score += 1;
     }
     
@@ -903,13 +943,34 @@ function extractProductInfo() {
   };
 
   const getSelectorAndValue = (el: Element, attr: string | null = null) => {
-    const value = attr ? (el as any)[attr] : el.textContent?.trim();
+    let value = attr ? (el as any)[attr] : el.textContent?.trim();
     if (!value) return undefined;
+    
+    // Clean and extract the actual price value
+    if (!attr) {
+      value = extractCleanPriceValue(value);
+    }
     
     return {
       selector: getCssSelector(el),
       value: value
     };
+  };
+
+  // Extract clean price value from text
+  const extractCleanPriceValue = (text: string): string => {
+    // Remove extra whitespace
+    text = text.trim();
+    
+    // Try to extract just the price part
+    const priceMatch = text.match(/\$?([\d,]+(?:\.\d{2})?)/);
+    if (priceMatch) {
+      const numericPrice = priceMatch[1].replace(/,/g, '');
+      return `$${numericPrice}`;
+    }
+    
+    // Fallback: return original text
+    return text;
   };
 
   const getCssSelector = (el: Element) => {

@@ -18,6 +18,10 @@ interface ProductInfo {
 
 const DEV_MODE = true;
 
+// API configuration is now imported from config/api.ts
+
+// Data extraction and API calls are now handled by the background script
+
 interface AppProps {}
 
 const App: React.FC<AppProps> = () => {
@@ -32,6 +36,7 @@ const App: React.FC<AppProps> = () => {
 
   const [showSettings, setShowSettings] = useState(false);
   const [extractionMethod, setExtractionMethod] = useState<'dom' | 'ai'>('dom');
+  const [isTracking, setIsTracking] = useState(false);
   
   
   
@@ -102,46 +107,48 @@ const App: React.FC<AppProps> = () => {
   };
 
   const handleLogin = async () => {
-    const res = await fetch('https://your-api.com/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
-    });
-
-    const data = await res.json();
-    if (data.token) {
-      chrome.storage.local.set({ token: data.token }, () => {
-        setIsLoggedIn(true);
+    try {
+      const response = await chrome.runtime.sendMessage({
+        command: 'login',
+        email,
+        password
       });
-    } else {
-      alert("Login failed");
+
+      if (response.success) {
+        setIsLoggedIn(true);
+      } else {
+        throw new Error(response.error || "Login failed");
+      }
+    } catch (error) {
+      console.error('❌ Login failed:', error);
+      alert(`Login failed: ${error.message}`);
     }
   };
 
   const handleTrackProduct = async () => {
     if (!productInfo) return;
 
-    chrome.storage.local.get("token", async ({ token }) => {
-      const res = await fetch("https://your-api.com/api/tracked-products", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          ...productInfo,
-          priceGoal: parseFloat(priceGoal),
-          trackingPeriod: parseInt(trackingPeriod)
-        })
+    setIsTracking(true);
+    try {
+      const response = await chrome.runtime.sendMessage({
+        command: 'trackProduct',
+        productInfo,
+        priceGoal: parseFloat(priceGoal),
+        trackingPeriod: parseInt(trackingPeriod)
       });
 
-      const data = await res.json();
-      if (data.id) {
+      if (response.success) {
         setShowConfirmation(true);
       } else {
-        alert("Failed to start tracking.");
+        throw new Error(response.error || "Failed to start tracking");
       }
-    });
+      
+    } catch (error) {
+      console.error('❌ Failed to track product:', error);
+      alert(`Failed to start tracking: ${error.message}`);
+    } finally {
+      setIsTracking(false);
+    }
   };
 
   const handleOkay = () => {
@@ -296,9 +303,14 @@ const App: React.FC<AppProps> = () => {
       
       <button 
         onClick={handleTrackProduct}
-        className="bg-primary-200 text-gray-800 border-none rounded-lg py-2.5 w-full mt-2 cursor-pointer transition-colors hover:bg-primary-300 font-semibold text-lg"
+        disabled={isTracking}
+        className={`bg-primary-200 text-gray-800 border-none rounded-lg py-2.5 w-full mt-2 transition-colors font-semibold text-lg ${
+          isTracking 
+            ? 'opacity-50 cursor-not-allowed' 
+            : 'cursor-pointer hover:bg-primary-300'
+        }`}
       >
-        + Track This Product
+        {isTracking ? '⏳ Tracking...' : '+ Track This Product'}
       </button>
     </div>
   );
