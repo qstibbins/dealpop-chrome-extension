@@ -2,7 +2,580 @@
 // Content script for DealPop extension
 console.log('🎯 DealPop content script loaded!');
 
+// Inline variant extraction functions to avoid module imports
+// These functions are copied from src/utils/variant-extractor.ts
+
+// Variant extraction types and functions
+type VariantInfo = {
+  selectedVariant: Record<string, string>;
+  variantKey?: string;
+  options?: Record<string, string[]>;
+  source: Array<"ld+json"|"og/meta"|"embedded"|"dom">;
+  variantSelectorData?: {
+    urlParams?: Record<string,string>;
+    attrs: Array<{
+      name: string;
+      value: string;
+      groupSelector: string;
+      optionIndex: number;
+      optionSelector: string;
+    }>;
+    variantKeyParam?: string;
+  };
+};
+
+// Cache for variant data per URL
+const variantCache = new Map<string, VariantInfo>();
+
+function getCachedVariantInfo(url: string): VariantInfo | undefined {
+  return variantCache.get(url);
+}
+
+function cacheVariantInfo(url: string, info: VariantInfo): void {
+  variantCache.set(url, info);
+}
+
+function clearVariantCache(): void {
+  variantCache.clear();
+  console.log('🧹 Variant cache cleared');
+}
+
+function extractVariantInfo(doc: Document = document): VariantInfo | null {
+  const sources: VariantInfo["source"] = [];
+  const out: VariantInfo = { selectedVariant: {}, source: sources };
+
+  // 1) Schema.org (ld+json)
+  const fromLd = parseLdVariants(doc);
+  if (fromLd) mergeVariant(out, fromLd, "ld+json");
+
+  // 2) Head / OG product extensions
+  const fromHead = parseHeadVariantHints(doc);
+  if (fromHead) mergeVariant(out, fromHead, "og/meta");
+
+  // 3) Embedded app state JSON blobs
+  const fromEmbedded = parseEmbeddedStateVariants(doc);
+  if (fromEmbedded) mergeVariant(out, fromEmbedded, "embedded");
+
+  // 4) DOM / ARIA: currently selected swatches/buttons
+  const fromDom = parseDomSelectedVariant(doc);
+  if (fromDom) mergeVariant(out, fromDom, "dom");
+
+  // 5) Fallback: derive variantKey from URL/canonical
+  if (!out.variantKey) {
+    out.variantKey = deriveRetailerKeyFromUrl(doc);
+    if (out.variantKey) sources.push("og/meta");
+  }
+
+  // Add reselection hints
+  out.variantSelectorData = buildReselectionHints(doc, out);
+
+  if (Object.keys(out.selectedVariant).length || out.variantKey) return out;
+  return null;
+}
+
+// Helper functions for variant extraction
+function mergeVariant(target: VariantInfo, src: Partial<VariantInfo>, tag: VariantInfo["source"][number]) {
+  target.source.push(tag);
+  if (src.variantKey && !target.variantKey) target.variantKey = src.variantKey;
+  if (src.options) {
+    target.options = target.options || {};
+    for (const [k, vals] of Object.entries(src.options)) {
+      const lk = k.toLowerCase();
+      target.options[lk] = Array.from(new Set([...(target.options[lk]||[]), ...vals]));
+    }
+  }
+  if (src.selectedVariant) {
+    for (const [k, v] of Object.entries(src.selectedVariant)) {
+      const lk = k.toLowerCase();
+      
+      // Only add the value if it's valid and we don't already have a better one
+      if (!target.selectedVariant[lk]) {
+        // For colors, validate the value to avoid product titles
+        if (lk === 'color' && !isValidColorValue(v)) {
+          console.log(`⚠️ Skipping invalid color value: "${v}"`);
+          continue;
+        }
+        target.selectedVariant[lk] = v;
+      } else {
+        // If we already have a value, only replace it if the new one is better
+        // Prioritize DOM extraction over meta tags
+        const currentSource = target.source[target.source.length - 1];
+        if (tag === 'dom' && currentSource !== 'dom') {
+          // DOM extraction is more reliable, replace the value
+          if (lk === 'color' && !isValidColorValue(v)) {
+            console.log(`⚠️ Skipping invalid color value from DOM: "${v}"`);
+            continue;
+          }
+          target.selectedVariant[lk] = v;
+          console.log(`🔄 Replaced ${lk} with DOM value: "${v}" (was: "${target.selectedVariant[lk]}")`);
+        }
+      }
+    }
+  }
+}
+
+function parseLdVariants(doc: Document): Partial<VariantInfo> | null {
+  const scripts = Array.from(doc.querySelectorAll('script[type="application/ld+json"]'));
+  let best: Partial<VariantInfo> | null = null;
+  
+  for (const s of scripts) {
+    let data: any; 
+    try { 
+      data = JSON.parse(s.textContent || "null"); 
+    } catch { 
+      continue; 
+    }
+    
+    const nodes = collectJsonLdNodes(data);
+    for (const node of nodes) {
+      if (!isType(node, "Product") && !isType(node, "ProductModel")) continue;
+
+      const attrs: Record<string,string> = {};
+      if (node.color) attrs.color = String(node.color);
+      if (node.size) attrs.size = String(node.size);
+
+      // additionalProperty as PropertyValue list
+      const props = Array.isArray(node.additionalProperty) ? node.additionalProperty : [];
+      for (const pv of props) {
+        if (pv && pv.name && pv.value) {
+          const name = String(pv.name).toLowerCase();
+          const value = String(pv.value);
+          if (["color","size","style","finish","capacity","material"].includes(name) && !attrs[name]) {
+            attrs[name] = value;
+          }
+        }
+      }
+
+      // sku often equals retailer variant id
+      const offers = pickFirst(node.offers);
+      const variantKey = (offers?.sku || node.sku) ? String(offers?.sku || node.sku) : undefined;
+
+      const candidate: Partial<VariantInfo> = {
+        selectedVariant: Object.keys(attrs).length ? attrs : undefined,
+        variantKey
+      };
+      
+      if (!best || (candidate.selectedVariant && !best.selectedVariant) || (candidate.variantKey && !best.variantKey)) {
+        best = candidate;
+      }
+    }
+  }
+  return best;
+}
+
+function collectJsonLdNodes(root: any): any[] {
+  const arr = Array.isArray(root) ? root : [root];
+  const out: any[] = [];
+  for (const item of arr) {
+    if (!item) continue;
+    if (item["@graph"]) out.push(...collectJsonLdNodes(item["@graph"]));
+    else out.push(item);
+  }
+  return out;
+}
+
+function isType(node: any, t: string): boolean {
+  const typ = node?.["@type"];
+  return typ === t || (Array.isArray(typ) && typ.includes(t));
+}
+
+function pickFirst<T>(x: T|T[]|undefined|null): T|undefined {
+  if (!x) return undefined;
+  return Array.isArray(x) ? x[0] : x;
+}
+
+function parseHeadVariantHints(doc: Document): Partial<VariantInfo> | null {
+  const m = (sel: string) => (doc.querySelector(sel) as HTMLMetaElement | null)?.content?.trim();
+  const ogTitle = m('meta[property="og:title"]') || doc.title || "";
+  const ogDesc = m('meta[property="og:description"]') || m('meta[name="description"]') || "";
+  const prodId = m('meta[property="product:retailer_item_id"]') || "";
+
+  const attrs = extractAttrsFromText(`${ogTitle} ${ogDesc}`);
+  const selectedVariant = Object.keys(attrs).length ? attrs : undefined;
+  const variantKey = prodId || deriveRetailerKeyFromUrl(doc) || undefined;
+  
+  return (selectedVariant || variantKey) ? { selectedVariant, variantKey } : null;
+}
+
+function extractAttrsFromText(text: string): Record<string,string> {
+  const t = text.toLowerCase();
+  const out: Record<string,string> = {};
+  
+  // Enhanced color detection - more flexible and comprehensive
+  // Look for color patterns in various formats
+  const colorPatterns = [
+    // Basic colors with word boundaries
+    /\b(black|white|silver|grey|gray|blue|sky blue|navy|green|red|pink|purple|gold|rose gold|starlight|midnight|graphite|natural|beige|brown|orange|yellow|teal|indigo|violet|maroon|olive|lime|aqua|fuchsia|coral|tan|cream|ivory|navy blue|forest green|olive green|sage green|burgundy|plum|lavender|mint|peach|salmon|turquoise|cyan|magenta)\b/,
+    // Descriptive colors (e.g., "Metallic Purple", "Multi-Colored", "Gamer")
+    /\b(metallic|matte|glossy|shimmer|sparkle|iridescent|holographic|neon|pastel|dark|light|bright|muted|vibrant|earthy|neutral|warm|cool|bold|subtle|classic|modern|vintage|retro|trendy|sporty|casual|formal|elegant|playful|sophisticated|minimalist|maximalist|gamer|gaming|multi|multi-colored|multi-color|two-tone|tri-tone|ombre|gradient|tie-dye|camouflage|animal print|floral|geometric|abstract|artistic|creative|unique|exclusive|limited edition|seasonal|holiday|themed|custom|personalized)\s+([a-z]+(?:\s+[a-z]+)*)/,
+    // Color + descriptor combinations
+    /\b([a-z]+(?:\s+[a-z]+)*)\s+(purple|blue|green|red|pink|yellow|orange|brown|black|white|gray|grey|gold|silver|bronze|copper|platinum|rose|navy|teal|indigo|violet|maroon|olive|lime|aqua|fuchsia|coral|tan|cream|ivory)\b/,
+    // Size + color combinations
+    /\b(size\s*[=:]?\s*([a-z]+(?:\s+[a-z]+)*))\b/i
+  ];
+  
+  let colorFound = false;
+  for (const pattern of colorPatterns) {
+    const match = t.match(pattern);
+    if (match && !colorFound) {
+      if (match[2]) {
+        // For descriptive patterns, use the full matched text
+        out.color = titleCase(match[0].replace(/^size\s*[=:]?\s*/i, ''));
+      } else {
+        out.color = titleCase(match[1]);
+      }
+      colorFound = true;
+      break;
+    }
+  }
+
+  // Enhanced size detection
+  const sizeMatch = t.match(/\b(size\s*[=:]?\s*(xs|s|m|l|xl|xxl|xxxl|\d+[t]?|\d+(?:\.\d+)?("|-| - )?(?:in|inch|cm)))\b/i);
+  if (sizeMatch) out.size = sizeMatch[2].toUpperCase();
+
+  return out;
+}
+
+// Enhanced validation to avoid extracting product titles as colors
+function isValidColorValue(value: string): boolean {
+  const t = value.toLowerCase();
+  
+  // Reject common product title words that aren't colors
+  const invalidWords = [
+    'backpack', 'bag', 'purse', 'wallet', 'laptop', 'computer', 'phone', 'tablet',
+    'shirt', 'pants', 'dress', 'shoes', 'boots', 'sneakers', 'jacket', 'coat',
+    'hat', 'cap', 'scarf', 'gloves', 'socks', 'underwear', 'bra', 'panties',
+    'toy', 'game', 'book', 'cd', 'dvd', 'blu-ray', 'vinyl', 'cassette',
+    'furniture', 'chair', 'table', 'bed', 'sofa', 'couch', 'desk', 'lamp',
+    'appliance', 'refrigerator', 'dishwasher', 'washer', 'dryer', 'oven', 'stove',
+    'electronics', 'camera', 'tv', 'speaker', 'headphone', 'earbud', 'watch',
+    'jewelry', 'ring', 'necklace', 'bracelet', 'earring', 'pendant', 'chain',
+    'classic', 'premium', 'deluxe', 'standard', 'basic', 'essential', 'professional'
+  ];
+  
+  // Check if the value contains any invalid words
+  for (const word of invalidWords) {
+    if (t.includes(word)) {
+      return false;
+    }
+  }
+  
+  // Must be reasonably short for a color name
+  if (value.length > 30) {
+    return false;
+  }
+  
+  return true;
+}
+
+function titleCase(s: string) { 
+  return s.replace(/\w\S*/g, w => w[0].toUpperCase() + w.slice(1).toLowerCase()); 
+}
+
+function parseEmbeddedStateVariants(doc: Document): Partial<VariantInfo> | null {
+  // Look for more script types that commonly contain variant data
+  const jsonScripts = Array.from(doc.querySelectorAll(`
+    script[type="application/json"], 
+    script[id^="__"], 
+    script[id*="STATE"], 
+    script[id*="state"], 
+    script[id*="data"], 
+    script[id*="props"], 
+    script[id*="config"], 
+    script[id*="initial"], 
+    script[id*="product"], 
+    script[id*="variant"]
+  `));
+  
+  const blobs: any[] = [];
+  
+  for (const s of jsonScripts) {
+    try {
+      const txt = s.textContent || "";
+      // More comprehensive pattern matching for variant-related content
+      if (!/variant|variants|variation|swatch|sku|selected|color|size|style|finish|material|capacity|dimension|attribute|option|choice|selection/i.test(txt)) continue;
+      blobs.push(JSON.parse(txt));
+    } catch { /* ignore */ }
+  }
+
+  let selected: Record<string,string> = {};
+  let variantKey: string | undefined;
+
+  for (const b of blobs) {
+    walk(b, (k, v) => {
+      // Look for selected variant data in various formats
+      if (k === "selected" && v && typeof v === "object") {
+        for (const [name, val] of Object.entries(v as any)) {
+          if (typeof val === "string" && likelyAttrName(name)) selected[name.toLowerCase()] = String(val);
+        }
+      }
+      if (k === "selectedVariant" && v && typeof v === "object") {
+        for (const [name, val] of Object.entries(v as any)) {
+          if (typeof val === "string" && likelyAttrName(name)) selected[name.toLowerCase()] = String(val);
+        }
+      }
+      if (k === "currentVariant" && v && typeof v === "object") {
+        for (const [name, val] of Object.entries(v as any)) {
+          if (typeof val === "string" && likelyAttrName(name)) selected[name.toLowerCase()] = String(val);
+        }
+      }
+      if (k === "activeVariant" && v && typeof v === "object") {
+        for (const [name, val] of Object.entries(v as any)) {
+          if (typeof val === "string" && likelyAttrName(name)) selected[name.toLowerCase()] = String(val);
+        }
+      }
+      if (k === "chosenVariant" && v && typeof v === "object") {
+        for (const [name, val] of Object.entries(v as any)) {
+          if (typeof val === "string" && likelyAttrName(name)) selected[name.toLowerCase()] = String(val);
+        }
+      }
+      
+      // Look for variant keys in various formats
+      if (/^(asin|itemId|sku|skuId|currentSku|selectedSku|selectedSkuId|variantId|productId|itemNumber|tcin|dpci|upc|ean|gtin)$/i.test(k) && typeof v === "string") {
+        variantKey = variantKey || v;
+      }
+    });
+  }
+
+  if (!Object.keys(selected).length && !variantKey) return null;
+  return { selectedVariant: selected, variantKey };
+}
+
+function likelyAttrName(n: string) { 
+  return /^(color|size|style|finish|material|capacity|width|length|height)$/i.test(n); 
+}
+
+function walk(obj: any, fn: (k:string, v:any) => void) {
+  if (!obj || typeof obj !== "object") return;
+  for (const [k, v] of Object.entries(obj)) {
+    fn(k, v);
+    if (v && typeof v === "object") walk(v, fn);
+  }
+}
+
+function parseDomSelectedVariant(doc: Document): Partial<VariantInfo> | null {
+  // More comprehensive selector patterns for variant groups
+  const groups = Array.from(doc.querySelectorAll<HTMLElement>(`
+    [role="radiogroup"], 
+    [role="listbox"], 
+    [data-attribute-name], 
+    [class*="variant"], 
+    [class*="swatch"], 
+    [class*="option"], 
+    [class*="choice"], 
+    [class*="selector"], 
+    [class*="picker"], 
+    [class*="attribute"], 
+    [class*="dimension"], 
+    [data-testid*="variant"], 
+    [data-testid*="option"], 
+    [data-testid*="color"], 
+    [data-testid*="size"], 
+    [data-testid*="style"], 
+    [aria-label*="color"], 
+    [aria-label*="size"], 
+    [aria-label*="style"], 
+    [aria-label*="variant"], 
+    [aria-label*="option"],
+    [class*="color-swatch"],
+    [class*="color-option"],
+    [class*="color-picker"],
+    [class*="color-selector"],
+    [class*="swatch-option"],
+    [class*="swatch-selector"]
+  `));
+  
+  const selected: Record<string,string> = {};
+
+  for (const g of groups) {
+    const groupName = inferGroupName(g) || "";
+    const { value } = readSelectedFromGroup(g);
+    if (groupName && value) {
+      // Validate color values before adding them
+      if (groupName.toLowerCase() === 'color' && !isValidColorValue(value)) {
+        console.log(`⚠️ Skipping invalid color from DOM: "${value}"`);
+        continue;
+      }
+      selected[groupName.toLowerCase()] = value;
+      console.log(`✅ DOM extracted ${groupName}: "${value}"`);
+    }
+  }
+  
+  if (!Object.keys(selected).length) return null;
+  return { selectedVariant: selected };
+}
+
+function inferGroupName(g: HTMLElement): string | undefined {
+  const label = g.getAttribute("aria-label") || g.getAttribute("data-attribute-name");
+  if (label) return label;
+  
+  const prev = g.previousElementSibling as HTMLElement | null;
+  const t = prev?.textContent?.trim();
+  if (t && t.length <= 24 && /color|size|style|finish|material/i.test(t)) return t;
+  return undefined;
+}
+
+function readSelectedFromGroup(g: HTMLElement): { value?: string; all: string[]; index: number; optionSelector: string } {
+  const clickable = Array.from(g.querySelectorAll<HTMLElement>('input[type="radio"], [role="radio"], [role="option"], button, [data-value], [data-color], [data-size]'))
+    .filter(el => !el.closest('[aria-hidden="true"], [hidden]'));
+  
+  const labels = clickable.map(el => (
+    el.getAttribute("aria-label") || el.getAttribute("data-value") || el.getAttribute("data-color") || el.getAttribute("data-size") ||
+    (el.textContent || "").trim()
+  )).map(s => s?.replace(/\s+/g, " ").trim()).filter(Boolean) as string[];
+  
+  let index = -1;
+  for (let i=0;i<clickable.length;i++) {
+    const el = clickable[i];
+    if ((el as HTMLInputElement).checked || el.getAttribute("aria-checked")==="true" || el.getAttribute("aria-selected")==="true" || el.getAttribute("data-selected")==="true" || /\bselected\b/i.test(el.className)) {
+      index = i; break;
+    }
+  }
+  
+  const value = index >= 0 ? labels[index] : undefined;
+  const optionSelector = 'input[type="radio"], [role="radio"], [role="option"], button, [data-value], [data-color], [data-size]';
+  return { value, all: Array.from(new Set(labels)), index, optionSelector };
+}
+
+function deriveRetailerKeyFromUrl(doc: Document): string | undefined {
+  const canon = (doc.querySelector('link[rel="canonical"]') as HTMLLinkElement | null)?.href || location.href;
+  try {
+    const u = new URL(canon);
+    const h = u.hostname;
+    if (/amazon\./i.test(h)) {
+      const m = u.pathname.match(/\/(?:dp|gp\/product)\/([A-Z0-9]{10})/i);
+      if (m) return m[1].toUpperCase();
+    }
+    if (/walmart\.com$/i.test(h)) {
+      const m = u.pathname.match(/\/ip\/[^/]+\/(\d+)/i);
+      if (m) return m[1];
+    }
+    if (/target\.com$/i.test(h)) {
+      const m = u.pathname.match(/\/-\/A-(\d+)/i);
+      if (m) return m[1];
+    }
+  } catch {}
+  return undefined;
+}
+
+function buildReselectionHints(doc: Document, info: VariantInfo): VariantInfo["variantSelectorData"] {
+  const urlParams: Record<string,string> = {};
+  try {
+    const u = new URL((doc.querySelector('link[rel="canonical"]') as HTMLLinkElement | null)?.href || location.href);
+    for (const [k,v] of u.searchParams) if (v) urlParams[k] = v;
+  } catch {}
+
+  const attrs: NonNullable<VariantInfo["variantSelectorData"]>["attrs"] = [];
+  for (const [name, value] of Object.entries(info.selectedVariant || {})) {
+    const groupSelector = `[role="radiogroup"][aria-label*="${cssq(name)}" i], [role="listbox"][aria-label*="${cssq(name)}" i], [data-attribute-name*="${cssq(name)}" i]`;
+    const group = document.querySelector<HTMLElement>(groupSelector);
+    if (!group) continue;
+    const { index, optionSelector } = readSelectedFromGroup(group);
+    if (index >= 0) attrs.push({ name, value, groupSelector, optionIndex: index, optionSelector });
+  }
+
+  let variantKeyParam: string | undefined;
+  if (info.variantKey) {
+    for (const key of ["sku","skuId","asin","tcin","itemId","variantId"]) {
+      if (urlParams[key]) { variantKeyParam = key; break; }
+    }
+  }
+
+  return { urlParams, attrs, variantKeyParam };
+}
+
+function cssq(s: string) { 
+  return s.replace(/["\\]/g, "\\$&"); 
+}
+
 // Inline the necessary functions to avoid module imports
+function extractMetaSignals(doc: Document = document) {
+  const get = (sel: string) => (doc.querySelector(sel) as HTMLMetaElement | HTMLLinkElement | null);
+
+  // Helper functions to extract content from different meta tag types
+  const og = (p: string) => (get(`meta[property="og:${p}"]`) as HTMLMetaElement | null)?.content?.trim() || "";
+  const tw = (p: string) => (get(`meta[property="twitter:${p}"]`) as HTMLMetaElement | null)?.content?.trim() || "";
+  const mt = (n: string) => (get(`meta[name="${n}"]`) as HTMLMetaElement | null)?.content?.trim() || "";
+  const linkCanon = (get('link[rel="canonical"]') as HTMLLinkElement | null)?.href?.trim() || "";
+
+  const signals: any = { sourceMap: {} };
+
+  // Title - prefer OG → Twitter → standard meta → document title
+  signals.title = og("title") || tw("title") || doc.title?.trim() || mt("title") || undefined;
+  if (signals.title) {
+    if (og("title")) signals.sourceMap.title = "og";
+    else if (tw("title")) signals.sourceMap.title = "twitter";
+    else if (mt("title")) signals.sourceMap.title = "meta";
+    else signals.sourceMap.title = "document";
+  }
+
+  // Description - prefer OG → Twitter → standard meta
+  signals.description = og("description") || tw("description") || mt("description") || undefined;
+  if (signals.description) {
+    if (og("description")) signals.sourceMap.description = "og";
+    else if (tw("description")) signals.sourceMap.description = "twitter";
+    else signals.sourceMap.description = "meta";
+  }
+
+  // Keywords (sometimes the product name repeats here—useful as a hint)
+  signals.keywords = mt("keywords") || undefined;
+  if (signals.keywords) signals.sourceMap.keywords = "meta";
+
+  // URL + canonical - prefer canonical link → og:url → current location
+  const ogUrl = og("url");
+  signals.canonical = linkCanon || (ogUrl ? absolutize(ogUrl) : undefined);
+  if (signals.canonical) {
+    signals.sourceMap.canonical = linkCanon ? "link" : "og";
+  }
+
+  // Image candidates - collect all available images and dedupe
+  const candidates = [
+    og("image"),
+    // Some sites add secure_url or multiple indexed tags
+    (get('meta[property="og:image:secure_url"]') as HTMLMetaElement | null)?.content,
+    tw("image"),
+    // Fallback to any meta image tags
+    (get('meta[name="image"]') as HTMLMetaElement | null)?.content,
+  ].filter(Boolean) as string[];
+
+  const deduped = dedupeUrls(candidates.map(url => absolutizeSafe(url)));
+  signals.images = deduped.length ? deduped : undefined;
+  signals.image = deduped[0];
+
+  if (signals.image) {
+    if (og("image")) signals.sourceMap.image = "og";
+    else if (tw("image")) signals.sourceMap.image = "twitter";
+    else signals.sourceMap.image = "meta";
+  }
+
+  // Also expose URL (prefer canonical, then og:url, then location)
+  signals.url = signals.canonical || (ogUrl ? absolutize(ogUrl) : location.href);
+
+  return signals;
+}
+
+function absolutize(url: string, base: string = location.href): string {
+  try { 
+    return new URL(url, base).toString(); 
+  } catch { 
+    return url; 
+  }
+}
+
+function absolutizeSafe(url?: string | null): string {
+  if (!url) return "";
+  return absolutize(url);
+}
+
+function dedupeUrls(urls: string[]): string[] {
+  const set = new Set<string>();
+  for (const url of urls) {
+    const key = url.replace(/(\?|#).*$/, ""); // ignore query/hash variants
+    if (!set.has(key)) set.add(key);
+  }
+  return Array.from(set.values());
+}
+
 function extractProductInfo() {
   const getPrice = () => {
     // First attempt: Try structured data extraction
@@ -49,6 +622,7 @@ function extractProductInfo() {
     for (const selector of amazonSelectors) {
       const element = document.querySelector(selector);
       if (element && containsPrice(element.textContent || '')) {
+        console.log('🎯 Found price using Amazon selector:', selector);
         return getSelectorAndValue(element);
       }
     }
@@ -57,6 +631,7 @@ function extractProductInfo() {
     for (const selector of targetSelectors) {
       const element = document.querySelector(selector);
       if (element && containsPrice(element.textContent || '')) {
+        console.log('🎯 Found price using Target selector:', selector);
         return getSelectorAndValue(element);
       }
     }
@@ -65,22 +640,35 @@ function extractProductInfo() {
     for (const selector of walmartSelectors) {
       const element = document.querySelector(selector);
       if (element && containsPrice(element.textContent || '')) {
+        console.log('🎯 Found price using Walmart selector:', selector);
         return getSelectorAndValue(element);
       }
     }
     
     // Generic semantic selectors
     const semantic = document.querySelector('[itemprop*="price"], [class*="price"], [id*="price"]');
-    if (semantic && containsPrice(semantic.textContent || '')) return getSelectorAndValue(semantic);
+    if (semantic && containsPrice(semantic.textContent || '')) {
+      console.log('🎯 Found price using generic semantic selector');
+      return getSelectorAndValue(semantic);
+    }
 
-    // Fallback: search all elements for price patterns
+    // NEW: Universal fallback (only runs if specific selectors fail)
+    console.log('🎯 Retailer-specific selectors failed, trying universal fallback...');
+    const universalResult = extractPriceUniversalFallback();
+    if (universalResult) {
+      return universalResult;
+    }
+
+    // Final fallback: search all elements for price patterns
     const allElements = Array.from(document.querySelectorAll('body *')).filter(el =>
       el.textContent && containsPrice(el.textContent)
     );
     for (let el of allElements) {
+      console.log('🎯 Found price using final text scanning fallback');
       return getSelectorAndValue(el);
     }
 
+    console.log('🎯 No price found with any extraction method');
     return undefined;
   };
 
@@ -157,6 +745,7 @@ function extractProductInfo() {
   };
 
   const getTitle = () => {
+    // Use the original working title logic
     const candidates = [
       document.querySelector('h1'),
       document.querySelector('[itemprop="name"]'),
@@ -175,8 +764,15 @@ function extractProductInfo() {
     return undefined;
   };
 
-  const getImage = () => {
-    const img = document.querySelector('img[src*="product"], img[src*="item"], img');
+  const getImage = (metaSignals: any) => {
+    // First, try to get image from meta tags (more reliable)
+    if (metaSignals.image) {
+      console.log('🎯 Found image from meta tags:', metaSignals.image, 'Source:', metaSignals.sourceMap?.image);
+      return { selector: null, value: metaSignals.image };
+    }
+
+    // Fallback to DOM elements
+    const img = document.querySelector('img[src*="item"], img[src*="product"], img');
     if (img) {
       return getSelectorAndValue(img, 'src');
     }
@@ -184,6 +780,23 @@ function extractProductInfo() {
   };
 
   const extractVariants = () => {
+    // Use the new advanced variant extractor
+    try {
+      const variantInfo = extractVariantInfo(document);
+      if (variantInfo && Object.keys(variantInfo.selectedVariant).length > 0) {
+        console.log('🎯 Advanced variant extraction found:', variantInfo);
+        
+        // Cache the variant info for this URL
+        cacheVariantInfo(window.location.href, variantInfo);
+        
+        return variantInfo.selectedVariant;
+      }
+    } catch (error) {
+      console.error('🎯 Error in advanced variant extraction:', error);
+    }
+    
+    // Fallback to basic variant extraction if advanced method fails
+    console.log('🎯 Falling back to basic variant extraction');
     const variants: Record<string, string> = {};
     
     // Look for common variant selectors
@@ -220,6 +833,75 @@ function extractProductInfo() {
     return /\$[\d,]+(\.\d{2})?/.test(text) || /\d+\.\d{2}/.test(text);
   };
 
+  // Universal fallback function for retailer-agnostic price extraction
+  const extractPriceUniversalFallback = () => {
+    console.log('🎯 Running universal fallback price extraction...');
+    
+    // Universal semantic selectors (works on most e-commerce sites)
+    const universalSelectors = [
+      '[itemprop*="price"]',
+      '[class*="price"]',
+      '[id*="price"]',
+      '[data-price]',
+      '[data-amount]',
+      '[class*="amount"]',
+      '[class*="cost"]',
+      '[class*="value"]'
+    ];
+    
+    for (const selector of universalSelectors) {
+      const element = document.querySelector(selector);
+      if (element && containsPrice(element.textContent || '')) {
+        console.log('🎯 Universal selector found price:', selector);
+        return getSelectorAndValue(element);
+      }
+    }
+    
+    // Last resort: scan all text with scoring
+    const allElements = Array.from(document.querySelectorAll('body *'))
+      .filter(el => el.textContent && containsPrice(el.textContent))
+      .sort((a, b) => getPriceLikelihoodScore(b) - getPriceLikelihoodScore(a));
+      
+    if (allElements.length > 0) {
+      console.log('🎯 Text scanning found price with scoring');
+      return getSelectorAndValue(allElements[0]);
+    }
+    
+    return undefined;
+  };
+
+  // Simple price likelihood scoring for universal fallback
+  const getPriceLikelihoodScore = (element: Element): number => {
+    let score = 0;
+    const text = element.textContent || '';
+    const className = element.className || '';
+    const id = element.id || '';
+    
+    // Positive signals
+    if (/\bprice\b/i.test(className)) score += 3;
+    if (/\bprice\b/i.test(id)) score += 3;
+    if (/\bcurrent\b/i.test(className)) score += 2;
+    if (/\bnow\b/i.test(className)) score += 2;
+    if (/\bsale\b/i.test(className)) score += 2;
+    if (/\bfinal\b/i.test(className)) score += 2;
+    
+    // Negative signals
+    if (/\bstrike\b/i.test(className)) score -= 3;
+    if (/\bwas\b/i.test(className)) score -= 3;
+    if (/\blist\b/i.test(className)) score -= 3;
+    if (/\boriginal\b/i.test(className)) score -= 3;
+    if (/\bmsrp\b/i.test(className)) score -= 3;
+    if (/\bcompare\b/i.test(className)) score -= 2;
+    
+    // Proximity to buy buttons (simple heuristic)
+    const buyButton = element.closest('body')?.querySelector('button:not([disabled])');
+    if (buyButton && buyButton.textContent?.match(/buy|add to cart|checkout/i)) {
+      score += 1;
+    }
+    
+    return score;
+  };
+
   const getSelectorAndValue = (el: Element, attr: string | null = null) => {
     const value = attr ? (el as any)[attr] : el.textContent?.trim();
     if (!value) return undefined;
@@ -240,16 +922,44 @@ function extractProductInfo() {
   };
 
   // Only return clean, structured data
+  const metaSignals = extractMetaSignals();
+  
+  // Get advanced variant information
+  let variantInfo = null;
+  try {
+    variantInfo = extractVariantInfo(document);
+    if (variantInfo) {
+      console.log('🎯 Full variant info extracted:', variantInfo);
+      // Cache the variant info for this URL
+      cacheVariantInfo(window.location.href, variantInfo);
+    }
+  } catch (error) {
+    console.error('🎯 Error extracting full variant info:', error);
+  }
+  
   const cleanData = {
     title: getTitle(),
     price: getPrice(),
-    image: getImage(),
+    image: getImage(metaSignals),
     url: window.location.href,
-    variants: extractVariants()
+    variants: extractVariants(),
+    variantInfo: variantInfo, // Include full variant information
+    meta: {
+      canonical: metaSignals.canonical,
+      image: metaSignals.image,
+      images: metaSignals.images,
+      sourceMap: metaSignals.sourceMap
+    }
   };
   
   // Validate the data before returning
   console.log('🎯 Raw extracted data:', cleanData);
+  if (metaSignals.canonical) {
+    console.log('🎯 Found canonical URL from meta tags:', metaSignals.canonical, 'Source:', metaSignals.sourceMap?.canonical);
+  }
+  if (metaSignals.image) {
+    console.log('🎯 Found image from meta tags:', metaSignals.image, 'Source:', metaSignals.sourceMap?.image);
+  }
   
   // Ensure we're not accidentally returning page content
   if (cleanData.title?.value && cleanData.title.value.length > 200) {
@@ -266,163 +976,7 @@ function extractProductInfo() {
   return cleanData;
 }
 
-// ProductExtractor class for AI functionality
-class ProductExtractor {
-  private openai: any;
 
-  constructor(apiKey?: string) {
-    if (apiKey && typeof window !== 'undefined') {
-      // For now, we'll handle OpenAI initialization in the methods
-      this.apiKey = apiKey;
-    }
-  }
-
-  private apiKey?: string;
-
-  async captureScreenshot(): Promise<string> {
-    // Instead of screenshots, we'll use DOM extraction
-    // This is more reliable and doesn't require external libraries
-    console.log('🎯 Using DOM-based extraction instead of screenshots');
-    
-    // Return a placeholder since we're not using screenshots
-    return 'data:image/png;base64,dom-extraction-placeholder';
-  }
-
-  async extractProductFromImage(imageDataUrl: string): Promise<any> {
-    // Instead of AI extraction, we'll use enhanced DOM extraction
-    // This is more reliable and doesn't require API calls
-    console.log('🎯 Using enhanced DOM extraction instead of AI');
-    
-    try {
-      // Use the existing extractProductInfo function for DOM extraction
-      const domData = extractProductInfo();
-      
-      // Enhance the data with additional extraction
-      const enhancedData = {
-        product_name: domData.title?.value || this.extractProductName(),
-        price: domData.price?.value || this.extractPrice(),
-        color: this.extractColor(),
-        brand: this.extractBrand(),
-        capacity: this.extractCapacity(),
-        vendor: new URL(window.location.href).hostname
-      };
-      
-      console.log('🎯 Enhanced DOM extraction completed:', enhancedData);
-      return enhancedData;
-      
-    } catch (error) {
-      console.error('Enhanced DOM extraction failed:', error);
-      throw error;
-    }
-  }
-
-  private extractProductName(): string {
-    // Try multiple selectors for product name
-    const selectors = [
-      'h1',
-      '[itemprop="name"]',
-      '[class*="title"]',
-      '[class*="product"]',
-      'title'
-    ];
-    
-    for (const selector of selectors) {
-      const element = document.querySelector(selector);
-      if (element?.textContent?.trim()) {
-        return element.textContent.trim();
-      }
-    }
-    
-    return 'Product Name Not Found';
-  }
-
-  private extractPrice(): string {
-    // Try multiple selectors for price
-    const selectors = [
-      '[itemprop="price"]',
-      '[class*="price"]',
-      '[id*="price"]',
-      'span:contains("$")',
-      '.price',
-      '#price'
-    ];
-    
-    for (const selector of selectors) {
-      const element = document.querySelector(selector);
-      if (element?.textContent?.trim()) {
-        const priceMatch = element.textContent.match(/\$[\d,]+(\.\d{2})?/);
-        if (priceMatch) {
-          return priceMatch[0];
-        }
-      }
-    }
-    
-    return 'Price Not Found';
-  }
-
-  private extractColor(): string {
-    // Look for color information
-    const colorSelectors = [
-      '[data-color]',
-      '[class*="color"]',
-      'span:contains("Color")',
-      'label:contains("Color")'
-    ];
-    
-    for (const selector of colorSelectors) {
-      const element = document.querySelector(selector);
-      if (element?.textContent?.trim()) {
-        return element.textContent.trim();
-      }
-      }
-    
-    return 'Color Not Specified';
-  }
-
-  private extractBrand(): string {
-    // Look for brand information
-    const brandSelectors = [
-      '[itemprop="brand"]',
-      '[class*="brand"]',
-      '[id*="brand"]',
-      'span:contains("Brand")',
-      'label:contains("Brand")'
-    ];
-    
-    for (const selector of brandSelectors) {
-      const element = document.querySelector(selector);
-      if (element?.textContent?.trim()) {
-        return element.textContent.trim();
-      }
-    }
-    
-    return 'Brand Not Specified';
-  }
-
-  private extractCapacity(): string {
-    // Look for capacity/size information
-    const capacitySelectors = [
-      '[data-capacity]',
-      '[class*="capacity"]',
-      '[class*="size"]',
-      'span:contains("GB")',
-      'span:contains("TB")',
-      'span:contains("inch")'
-    ];
-    
-    for (const selector of capacitySelectors) {
-      const element = document.querySelector(selector);
-      if (element?.textContent?.trim()) {
-        return element.textContent.trim();
-      }
-    }
-    
-    return 'Capacity Not Specified';
-  }
-}
-
-// Make ProductExtractor globally available for debugging
-(window as any).ProductExtractor = ProductExtractor;
 
 function injectDealPopButton() {
   console.log('🎯 Injecting DP button...');
@@ -499,8 +1053,20 @@ function injectDealPopButton() {
   // Add click handler
   btn.addEventListener('click', () => {
     console.log('🎯 DP button clicked!');
+    
+    // Clear cache and re-extract variants
+    clearVariantCache();
+    
+    // Re-extract variant info
+    const variantInfo = extractVariantInfo(document);
+    if (variantInfo) {
+      console.log('🔄 Fresh variant extraction:', variantInfo);
+      // Cache the new data
+      cacheVariantInfo(window.location.href, variantInfo);
+    }
+    
     // You can add your popup logic here
-    alert('DealPop button clicked! Product extraction ready.');
+    alert('DealPop button clicked! Cache cleared and variants re-extracted.');
   });
 
   // Position the button
@@ -544,11 +1110,58 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
+// Expose cache functions globally for debugging
+(window as any).dealPopCache = {
+  clear: clearVariantCache,
+  get: getCachedVariantInfo,
+  set: cacheVariantInfo,
+  info: () => {
+    console.log('📊 Current cache contents:');
+    console.log('Cache size:', variantCache.size);
+    console.log('Cached URLs:', Array.from(variantCache.keys()));
+    console.log('Current URL:', window.location.href);
+    console.log('Current cache entry:', variantCache.get(window.location.href));
+  }
+};
+
+console.log('🔧 DealPop cache functions exposed globally:');
+console.log('  - dealPopCache.clear() - Clear all cached variants');
+console.log('  - dealPopCache.info() - Show cache status');
+console.log('  - dealPopCache.get(url) - Get cached data for URL');
+
+// Test variant extraction on page load
+function testVariantExtraction() {
+  console.log('🧪 Testing variant extraction...');
+  
+  try {
+    const variantInfo = extractVariantInfo(document);
+    if (variantInfo) {
+      console.log('✅ Variant extraction successful:', variantInfo);
+      
+      // Test caching
+      cacheVariantInfo(window.location.href, variantInfo);
+      console.log('✅ Variant info cached for URL:', window.location.href);
+      
+      // Test cache retrieval
+      const cached = getCachedVariantInfo(window.location.href);
+      console.log('✅ Cache retrieval successful:', cached);
+    } else {
+      console.log('ℹ️ No variant info found on this page');
+    }
+  } catch (error) {
+    console.error('❌ Variant extraction error:', error);
+  }
+}
+
 // Run after DOM is loaded
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', injectDealPopButton);
+  document.addEventListener('DOMContentLoaded', () => {
+    injectDealPopButton();
+    testVariantExtraction();
+  });
 } else {
   injectDealPopButton();
+  testVariantExtraction();
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -561,39 +1174,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse(data);
   }
 
-  if (msg.command === "screenshotAndExtract") {
-    console.log('🎯 Starting screenshot and extract...');
-    handleScreenshotAndExtract(msg.apiKey)
-      .then(result => {
-        console.log('🎯 Screenshot and extract result:', result);
-        sendResponse(result);
-      })
-      .catch(error => {
-        console.error('🎯 Screenshot and extract error:', error);
-        sendResponse({ error: error.message });
-      });
-    return true; // Keep the message channel open for async response
-  }
+
 });
 
-async function handleScreenshotAndExtract(apiKey: string) {
-  try {
-    // Initialize ProductExtractor with API key
-    const extractor = new ProductExtractor(apiKey);
-    
-    // Take a screenshot of the current page
-    console.log('🎯 Taking screenshot...');
-    const screenshot = await extractor.captureScreenshot();
-    console.log('🎯 Screenshot captured, size:', screenshot.length);
-    
-    // Extract product information from the screenshot using AI
-    console.log('🎯 Extracting product info from screenshot...');
-    const aiData = await extractor.extractProductFromImage(screenshot);
-    console.log('🎯 AI extraction completed:', aiData);
-    
-    return { aiData };
-  } catch (error) {
-    console.error('🎯 Screenshot and extraction failed:', error);
-    return { error: error instanceof Error ? error.message : String(error) };
-  }
-} 
+ 

@@ -1,5 +1,20 @@
 import React, { useState, useEffect } from 'react'
-import { ProductInfo } from '../utils/productExtractor'
+
+// Define ProductInfo type based on what the content script actually returns
+interface ProductInfo {
+  title: { selector: string | null; value: string };
+  price: { selector: string | null; value: string };
+  image: { selector: string | null; value: string };
+  url: string;
+  variants: Record<string, any>;
+  variantInfo?: any;
+  meta?: {
+    canonical?: string;
+    image?: string;
+    images?: string[];
+    sourceMap?: Record<string, string>;
+  };
+}
 
 const DEV_MODE = true;
 
@@ -141,7 +156,7 @@ const App: React.FC<AppProps> = () => {
       <div className="bg-primary-100 border-2 border-gray-200 rounded-[20px] p-5 shadow-sm mb-4 text-center">
         <p className="mb-2">This product has been added and it's now being tracked</p>
         <img 
-          src={productInfo?.image?.value || "icon.png"} 
+          src={productInfo?.meta?.image || productInfo?.image?.value || "icon.png"} 
           alt="Product Image" 
           className="w-12 h-12 rounded-[10px] object-cover mb-2 border border-gray-200 bg-white mx-auto"
         />
@@ -209,7 +224,7 @@ const App: React.FC<AppProps> = () => {
       <div className="flex justify-between items-start mb-4">
         <div className="flex items-center">
           <img 
-            src={productInfo?.image?.value || "icon.png"} 
+            src={productInfo?.meta?.image || productInfo?.image?.value || "icon.png"} 
             alt="Product Image" 
             className="w-16 h-16 rounded-xl object-cover mr-4 border border-gray-200 bg-white"
           />
@@ -223,7 +238,11 @@ const App: React.FC<AppProps> = () => {
             <div className="text-sm text-gray-500 mb-2">
               {productInfo?.url ? new URL(productInfo.url).hostname : ""}
             </div>
-
+            {productInfo?.meta?.image && (
+              <div className="text-xs text-blue-600 mb-1">
+                📷 Meta image found
+              </div>
+            )}
           </div>
         </div>
         <div className="flex space-x-2">
