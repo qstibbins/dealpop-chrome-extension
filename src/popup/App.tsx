@@ -20,6 +20,12 @@ interface ProductInfo {
 
 const DEV_MODE = false; // Disable dev mode to use Firebase auth
 
+// Helper function to truncate long product names
+const truncateProductName = (name: string, maxLength: number = 60) => {
+  if (name.length <= maxLength) return name;
+  return name.substring(0, maxLength).trim() + '...';
+};
+
 interface AppProps {}
 
 const App: React.FC<AppProps> = () => {
@@ -188,7 +194,7 @@ const App: React.FC<AppProps> = () => {
         expires_at: expiresAt.toISOString()
       };
 
-      const response = await trackProduct(productData);
+      const response = await trackProduct(productData as any);
 
       if (response.success) {
         // Show backend message if available, otherwise use default
@@ -225,7 +231,12 @@ const App: React.FC<AppProps> = () => {
           alt="Product Image" 
           className="w-12 h-12 rounded-[10px] object-cover mb-2 border border-gray-200 bg-white mx-auto"
         />
-        <div className="font-semibold">{productInfo?.title?.value || "Product Name"}</div>
+        <div 
+          className="font-semibold" 
+          title={productInfo?.title?.value || "Product Name"}
+        >
+          {truncateProductName(productInfo?.title?.value || "Product Name", 50)}
+        </div>
         <div className="font-bold text-lg text-gray-800">
           ${priceGoal || "0.00"}
         </div>
@@ -313,8 +324,11 @@ const App: React.FC<AppProps> = () => {
             className="w-16 h-16 rounded-xl object-cover mr-4 border border-gray-200 bg-white"
           />
           <div>
-            <div className="text-lg font-semibold mb-1">
-              {productInfo?.title?.value || "Product Name"}
+            <div 
+              className="text-lg font-semibold mb-1" 
+              title={productInfo?.title?.value || "Product Name"}
+            >
+              {truncateProductName(productInfo?.title?.value || "Product Name")}
             </div>
             <div className="text-xl font-bold text-gray-800 mb-0.5">
               {productInfo?.price?.value ? productInfo.price.value : ""}
