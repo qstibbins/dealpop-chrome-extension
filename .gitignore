@@ -40,3 +40,6 @@ coverage/
 /priceUtils.js
 /index.js 
 PUPPETEER_SCRAPER_FILES/
+
+# Documentation (auto-generated or temporary)
+docs/
