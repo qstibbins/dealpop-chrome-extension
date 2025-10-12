@@ -3,9 +3,7 @@
 import { State } from './state.js';
 import { extractPrice } from './priceUtils.js';
 import { getStoredToken, getFreshToken } from '../services/firebaseAuth.js';
-
-// API Configuration
-const API_BASE_URL = 'http://localhost:3000';
+import { API_CONFIG } from '../config/api.js';
 
 // Helper functions for data transformation
 const extractVendor = (url: string): string => {
@@ -162,7 +160,7 @@ async function handleTrackProductWithFirebase(productInfo: any, priceGoal: numbe
     
     console.log('🚀 Background script sending product tracking request:', requestBody);
 
-    const response = await fetch(`${API_BASE_URL}/v1/products`, {
+    const response = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.PRODUCTS.TRACK}`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${token}`,
@@ -176,7 +174,7 @@ async function handleTrackProductWithFirebase(productInfo: any, priceGoal: numbe
       if (response.status === 401) {
         const freshToken = await getFreshToken();
         if (freshToken) {
-          const retryResponse = await fetch(`${API_BASE_URL}/v1/products`, {
+          const retryResponse = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.PRODUCTS.TRACK}`, {
             method: "POST",
             headers: {
               "Authorization": `Bearer ${freshToken}`,

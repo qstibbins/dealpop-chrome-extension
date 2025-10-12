@@ -15,10 +15,10 @@ export const API_CONFIG = {
       REFRESH: '/v1/auth/refresh',
     },
     PRODUCTS: {
-      TRACK: '/v1/products',
-      LIST: '/v1/products',
-      UPDATE: (id: string) => `/v1/products/${id}`,
-      DELETE: (id: string) => `/v1/products/${id}`,
+      TRACK: '/tracked-products',
+      LIST: '/tracked-products',
+      UPDATE: (id: string) => `/tracked-products/${id}`,
+      DELETE: (id: string) => `/tracked-products/${id}`,
     }
   }
 };
