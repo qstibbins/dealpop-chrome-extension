@@ -5,14 +5,17 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build && cp manifest.json dist/ && cp content/content.js dist/",
-    "build:watch": "tsc --watch",
+    "build": "npm run clean && vite build",
+    "build:prod": "npm run clean && NODE_ENV=production vite build",
+    "build:watch": "vite build --watch",
+    "clean": "rm -rf dist",
     "preview": "vite preview",
     "test": "jest",
-    "test:extraction": "node test-extraction.js",
+    "test:extraction": "node test-extension.js",
     "test:sites": "node test-different-sites.js",
     "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "@types/react-router-dom": "^5.3.3",

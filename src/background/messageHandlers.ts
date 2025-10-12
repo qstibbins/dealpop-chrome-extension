@@ -296,4 +296,5 @@ async function handleSignOut(sendResponse: (response: any) => void) {
   }
 }
 
+
  

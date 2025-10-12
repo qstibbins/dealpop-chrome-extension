@@ -1,7 +1,8 @@
 {
   "manifest_version": 3,
   "name": "DealPop Tracker",
-  "version": "1.0",
+  "version": "1.0.0",
+  "description": "Track product prices and get notified when they drop",
   "permissions": ["activeTab", "scripting", "storage", "tabs"],
   "host_permissions": [
     "<all_urls>",
@@ -9,15 +10,33 @@
     "https://*.googleapis.com/*",
     "https://accounts.google.com/*"
   ],
+  "externally_connectable": {
+    "matches": [
+      "http://localhost:5173/*",
+      "http://localhost:3000/*",
+      "https://*.dealpop.com/*"
+    ]
+  },
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+  "icons": {
+    "16": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
   },
   "background": {
     "service_worker": "background.js",
     "type": "module"
   },
   "action": {
-    "default_popup": "src/popup/index.html"
+    "default_popup": "src/popup/index.html",
+    "default_icon": {
+      "16": "icon.png",
+      "48": "icon.png",
+      "128": "icon.png"
+    },
+    "default_title": "DealPop - Track Product Prices"
   },
   "content_scripts": [
     {

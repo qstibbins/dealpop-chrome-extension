@@ -3,22 +3,31 @@
     "target": "ES2020",
     "module": "ES2020",
     "moduleResolution": "node",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "outDir": "./",
-    "rootDir": "./src",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "types": ["chrome", "vite/client"],
     "declaration": false,
-    "sourceMap": false,
-    "allowSyntheticDefaultImports": true
+    "sourceMap": true,
+    "allowSyntheticDefaultImports": true,
+    "paths": {
+      "@/*": ["./src/*"]
+    }
   },
   "include": [
-    "src/background/**/*",
-    "src/content/**/*"
+    "src/**/*",
+    "src/**/*.tsx",
+    "src/**/*.ts"
   ],
   "exclude": [
     "node_modules",
-    "dist"
+    "dist",
+    "tests"
   ]
 } 

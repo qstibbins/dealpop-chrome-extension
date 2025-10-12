@@ -212,10 +212,16 @@ export async function signInWithGoogle(): Promise<{ user: FirebaseUser; token: s
 // Sign out
 export async function signOutUser(): Promise<void> {
   try {
-    await signOut(auth);
-    await chrome.storage.local.remove(['firebaseToken', 'firebaseUser', 'isAuthenticated']);
+    debugLog('Starting logout process...');
+    
+    // Clear extension's auth state
+    await chrome.storage.local.remove(['firebaseToken', 'firebaseUser', 'isAuthenticated', 'tokenTimestamp']);
+    debugLog('Extension auth state cleared');
+    
+    successLog('Extension logout completed successfully');
+    
   } catch (error) {
-    console.error('Sign out error:', error);
+    errorLog('Sign out error:', error);
     throw error;
   }
 }

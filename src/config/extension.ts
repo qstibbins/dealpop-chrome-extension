@@ -15,8 +15,8 @@ export const EXTENSION_CONFIG = {
    */
   // For now, always use localhost during development
   // Change this to production URL when ready to deploy
-  DASHBOARD_URL: 'http://localhost:5173/#/login?extension=true',
-  
+  DASHBOARD_URL: 'http://localhost:5173/?extension=true#/login',
+  //  DASHBOARD_URL: 'http://localhost:5173/#/login?extension=true'
   // Production URL (uncomment when deploying):
   // DASHBOARD_URL: 'https://your-dashboard-domain.com/#/login?extension=true',
 
