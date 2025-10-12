@@ -28,6 +28,7 @@ const App: React.FC<AppProps> = () => {
   const [productInfo, setProductInfo] = useState<ProductInfo | null>(null);
 
   const [showConfirmation, setShowConfirmation] = useState(false);
+  const [confirmationMessage, setConfirmationMessage] = useState('This product has been added and it\'s now being tracked');
   const [priceGoal, setPriceGoal] = useState('');
   const [trackingPeriod, setTrackingPeriod] = useState('30');
   const [isTracking, setIsTracking] = useState(false);
@@ -170,26 +171,29 @@ const App: React.FC<AppProps> = () => {
         : 0;
 
       const vendor = productInfo.url 
-        ? new URL(productInfo.url).hostname.split('.')[0].charAt(0).toUpperCase() + 
-          new URL(productInfo.url).hostname.split('.')[0].slice(1)
+        ? new URL(productInfo.url).hostname.replace('www.', '').split('.')[0].charAt(0).toUpperCase() + 
+          new URL(productInfo.url).hostname.replace('www.', '').split('.')[0].slice(1)
         : "Unknown";
 
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + parseInt(trackingPeriod));
 
-      const productData: ProductData = {
-        productUrl: productInfo.url,
-        productName: productInfo.title?.value || "Unknown Product",
-        productImageUrl: productInfo.image?.value || productInfo.meta?.image || "",
+      const productData = {
+        product_url: productInfo.url,
+        product_name: productInfo.title?.value || "Unknown Product",
+        product_image_url: productInfo.image?.value || productInfo.meta?.image || "",
         vendor: vendor,
-        currentPrice: currentPrice,
-        targetPrice: parseFloat(priceGoal),
-        expiresAt: expiresAt.toISOString()
+        current_price: currentPrice,
+        target_price: parseFloat(priceGoal),
+        expires_at: expiresAt.toISOString()
       };
 
       const response = await trackProduct(productData);
 
       if (response.success) {
+        // Show backend message if available, otherwise use default
+        const message = response.message || 'This product has been added and it\'s now being tracked';
+        setConfirmationMessage(message);
         setShowConfirmation(true);
       } else {
         throw new Error(response.error || "Failed to start tracking");
@@ -208,12 +212,14 @@ const App: React.FC<AppProps> = () => {
     setPriceGoal('');
     setTrackingPeriod('30');
     setExtractionMethod('dom');
+    // Close the popup after tracking
+    window.close();
   };
 
   if (showConfirmation) {
     return (
       <div className="bg-primary-100 border-2 border-gray-200 rounded-[20px] p-5 shadow-sm mb-4 text-center">
-        <p className="mb-2">This product has been added and it's now being tracked</p>
+        <p className="mb-2">{confirmationMessage}</p>
         <img 
           src={productInfo?.meta?.image || productInfo?.image?.value || "icon.png"} 
           alt="Product Image" 
@@ -221,7 +227,7 @@ const App: React.FC<AppProps> = () => {
         />
         <div className="font-semibold">{productInfo?.title?.value || "Product Name"}</div>
         <div className="font-bold text-lg text-gray-800">
-          {productInfo?.price?.value ? `$${productInfo.price.value}` : "$0.00"}
+          ${priceGoal || "0.00"}
         </div>
     
         <button 

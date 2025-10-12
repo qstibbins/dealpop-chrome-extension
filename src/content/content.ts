@@ -623,7 +623,7 @@ function extractProductInfo() {
       const element = document.querySelector(selector);
       if (element && containsPrice(element.textContent || '')) {
         console.log('🎯 Found price using Amazon selector:', selector);
-        return getSelectorAndValue(element);
+        return getPriceSelectorAndValue(element);
       }
     }
     
@@ -632,7 +632,7 @@ function extractProductInfo() {
       const element = document.querySelector(selector);
       if (element && containsPrice(element.textContent || '')) {
         console.log('🎯 Found price using Target selector:', selector);
-        return getSelectorAndValue(element);
+        return getPriceSelectorAndValue(element);
       }
     }
     
@@ -641,7 +641,7 @@ function extractProductInfo() {
       const element = document.querySelector(selector);
       if (element && containsPrice(element.textContent || '')) {
         console.log('🎯 Found price using Walmart selector:', selector);
-        return getSelectorAndValue(element);
+        return getPriceSelectorAndValue(element);
       }
     }
     
@@ -745,7 +745,29 @@ function extractProductInfo() {
   };
 
   const getTitle = () => {
-    // Use the original working title logic
+    // Amazon-specific title selectors (try these first)
+    const amazonSelectors = [
+      '#productTitle',
+      '[data-automation-id="product-title"]',
+      '.product-title',
+      '#dp-container h1',
+      '#centerCol h1',
+      '#titleSection h1'
+    ];
+    
+    // Try Amazon selectors first
+    for (const selector of amazonSelectors) {
+      const element = document.querySelector(selector);
+      if (element && element.textContent && element.textContent.trim()) {
+        const title = element.textContent.trim();
+        if (title.length > 3 && title.length < 200) { // Reasonable title length
+          console.log('🎯 Found Amazon title using selector:', selector, title);
+          return getSelectorAndValue(element);
+        }
+      }
+    }
+    
+    // Generic selectors as fallback
     const candidates = [
       document.querySelector('h1'),
       document.querySelector('[itemprop="name"]'),
@@ -757,7 +779,10 @@ function extractProductInfo() {
 
     for (let el of candidates) {
       if (el && el.textContent && el.textContent.trim()) {
-        return getSelectorAndValue(el);
+        const title = el.textContent.trim();
+        if (title.length > 3 && title.length < 200) { // Reasonable title length
+          return getSelectorAndValue(el);
+        }
       }
     }
 
@@ -862,7 +887,7 @@ function extractProductInfo() {
       const element = document.querySelector(selector);
       if (element && containsPrice(element.textContent || '')) {
         console.log('🎯 Universal selector found price:', selector, element.textContent?.trim());
-        return getSelectorAndValue(element);
+        return getPriceSelectorAndValue(element);
       }
     }
     
@@ -946,9 +971,24 @@ function extractProductInfo() {
     let value = attr ? (el as any)[attr] : el.textContent?.trim();
     if (!value) return undefined;
     
-    // Clean and extract the actual price value
+    return {
+      selector: getCssSelector(el),
+      value: value
+    };
+  };
+  
+  const getPriceSelectorAndValue = (el: Element, attr: string | null = null) => {
+    let value = attr ? (el as any)[attr] : el.textContent?.trim();
+    if (!value) return undefined;
+    
+    // Clean and extract the actual price value (only for prices)
     if (!attr) {
+      const originalValue = value;
       value = extractCleanPriceValue(value);
+      // If the original text already had a $, don't add another one
+      if (originalValue.includes('$') && value.startsWith('$$')) {
+        value = value.substring(1); // Remove the extra $
+      }
     }
     
     return {
@@ -966,6 +1006,7 @@ function extractProductInfo() {
     const priceMatch = text.match(/\$?([\d,]+(?:\.\d{2})?)/);
     if (priceMatch) {
       const numericPrice = priceMatch[1].replace(/,/g, '');
+      // Always return with $ prefix since we're extracting the numeric part
       return `$${numericPrice}`;
     }
     
@@ -997,6 +1038,7 @@ function extractProductInfo() {
   } catch (error) {
     console.error('🎯 Error extracting full variant info:', error);
   }
+  
   
   const cleanData = {
     title: getTitle(),
