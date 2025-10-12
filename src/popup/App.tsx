@@ -122,9 +122,29 @@ const App: React.FC<AppProps> = () => {
       const { user } = await signInWithGoogle();
       setUser(user);
       setIsLoggedIn(true);
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Google sign in failed:', error);
-      setAuthError(error instanceof Error ? error.message : 'Sign in failed');
+      
+      // Provide user-friendly error messages based on error code
+      let errorMessage = 'Sign in failed';
+      
+      if (error?.code === 'TAB_CREATION_FAILED') {
+        errorMessage = 'Could not open authentication window. Please try again.';
+      } else if (error?.code === 'TIMEOUT') {
+        errorMessage = 'Authentication timed out. Please try again.';
+      } else if (error?.code === 'USER_CANCELLED') {
+        errorMessage = 'Sign in was cancelled.';
+      } else if (error?.code === 'DASHBOARD_AUTH_ERROR') {
+        errorMessage = `Authentication failed: ${error.message}`;
+      } else if (error?.code === 'INVALID_AUTH_DATA') {
+        errorMessage = 'Received invalid authentication data. Please contact support.';
+      } else if (error?.code === 'STORAGE_ERROR') {
+        errorMessage = 'Failed to save authentication data. Please try again.';
+      } else {
+        errorMessage = error?.message || 'Sign in failed. Please try again.';
+      }
+      
+      setAuthError(errorMessage);
     }
   };
 
