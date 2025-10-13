@@ -1,5 +1,7 @@
 /// <reference types="chrome"/>
 // Content script for DealPop extension
+import { EXTENSION_CONFIG } from '../config/extension';
+
 console.log('🎯 DealPop content script loaded!');
 
 // Inline variant extraction functions to avoid module imports
@@ -1573,11 +1575,15 @@ function testVariantExtraction() {
 // Run after DOM is loaded
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => {
-    injectDealPopButton();
+    if (EXTENSION_CONFIG.FEATURES.SHOW_FLOATING_BUTTON) {
+      injectDealPopButton();
+    }
     testVariantExtraction();
   });
 } else {
-  injectDealPopButton();
+  if (EXTENSION_CONFIG.FEATURES.SHOW_FLOATING_BUTTON) {
+    injectDealPopButton();
+  }
   testVariantExtraction();
 }
 

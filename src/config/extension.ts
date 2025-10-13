@@ -40,6 +40,17 @@ export const EXTENSION_CONFIG = {
    * Debug mode - set to true for verbose logging
    */
   DEBUG: import.meta.env.MODE !== 'production',
+
+  /**
+   * Feature Flags
+   */
+  FEATURES: {
+    /**
+     * Enable/disable the floating DealPop button
+     * Set to false to hide the button
+     */
+    SHOW_FLOATING_BUTTON: false,
+  },
 };
 
 /**
