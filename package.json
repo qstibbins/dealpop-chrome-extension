@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run clean && NODE_ENV=development vite build --mode development",
-    "build:prod": "npm run clean && NODE_ENV=production vite build",
+    "build": "npm run clean && vite build --mode development",
+    "build:prod": "npm run clean && vite build --mode production",
     "build:watch": "vite build --watch",
     "clean": "rm -rf dist",
     "preview": "vite preview",

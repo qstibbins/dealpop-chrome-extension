@@ -88,7 +88,26 @@ function mergeVariant(target: VariantInfo, src: Partial<VariantInfo>, tag: Varia
     for (const [k, v] of Object.entries(src.selectedVariant)) {
       const lk = k.toLowerCase();
       
-      // Only add the value if it's valid and we don't already have a better one
+      // DOM extraction ALWAYS takes priority - it reflects the user's actual selection
+      if (tag === 'dom') {
+        // For colors, validate the value to avoid product titles
+        if (lk === 'color' && !isValidColorValue(v)) {
+          console.log(`⚠️ Skipping invalid color value from DOM: "${v}"`);
+          continue;
+        }
+        
+        const oldValue = target.selectedVariant[lk];
+        target.selectedVariant[lk] = v;
+        
+        if (oldValue && oldValue !== v) {
+          console.log(`🔄 DOM override: ${lk} changed from "${oldValue}" to "${v}"`);
+        } else {
+          console.log(`✅ DOM detected ${lk}: "${v}"`);
+        }
+        continue; // Skip the rest of the logic for DOM values
+      }
+      
+      // For non-DOM sources, only add if we don't already have a value
       if (!target.selectedVariant[lk]) {
         // For colors, validate the value to avoid product titles
         if (lk === 'color' && !isValidColorValue(v)) {
@@ -96,19 +115,9 @@ function mergeVariant(target: VariantInfo, src: Partial<VariantInfo>, tag: Varia
           continue;
         }
         target.selectedVariant[lk] = v;
+        console.log(`📝 Added ${lk} from ${tag}: "${v}"`);
       } else {
-        // If we already have a value, only replace it if the new one is better
-        // Prioritize DOM extraction over meta tags
-        const currentSource = target.source[target.source.length - 1];
-        if (tag === 'dom' && currentSource !== 'dom') {
-          // DOM extraction is more reliable, replace the value
-          if (lk === 'color' && !isValidColorValue(v)) {
-            console.log(`⚠️ Skipping invalid color value from DOM: "${v}"`);
-            continue;
-          }
-          target.selectedVariant[lk] = v;
-          console.log(`🔄 Replaced ${lk} with DOM value: "${v}" (was: "${target.selectedVariant[lk]}")`);
-        }
+        console.log(`⏭️ Skipping ${lk} from ${tag}: "${v}" (already have "${target.selectedVariant[lk]}")`);
       }
     }
   }
@@ -354,6 +363,8 @@ function walk(obj: any, fn: (k:string, v:any) => void) {
 }
 
 function parseDomSelectedVariant(doc: Document): Partial<VariantInfo> | null {
+  console.log('🔍 Starting DOM variant extraction...');
+  
   // More comprehensive selector patterns for variant groups
   const groups = Array.from(doc.querySelectorAll<HTMLElement>(`
     [role="radiogroup"], 
@@ -385,11 +396,18 @@ function parseDomSelectedVariant(doc: Document): Partial<VariantInfo> | null {
     [class*="swatch-selector"]
   `));
   
+  console.log(`🔍 Found ${groups.length} potential variant groups`);
+  
   const selected: Record<string,string> = {};
 
   for (const g of groups) {
     const groupName = inferGroupName(g) || "";
-    const { value } = readSelectedFromGroup(g);
+    console.log(`🔍 Checking group with inferred name: "${groupName}"`);
+    
+    const { value, all, index } = readSelectedFromGroup(g);
+    console.log(`  - Found ${all.length} options:`, all);
+    console.log(`  - Selected index: ${index}, value: "${value}"`);
+    
     if (groupName && value) {
       // Validate color values before adding them
       if (groupName.toLowerCase() === 'color' && !isValidColorValue(value)) {
@@ -398,6 +416,10 @@ function parseDomSelectedVariant(doc: Document): Partial<VariantInfo> | null {
       }
       selected[groupName.toLowerCase()] = value;
       console.log(`✅ DOM extracted ${groupName}: "${value}"`);
+    } else if (!groupName) {
+      console.log(`⚠️ No group name inferred for this group`);
+    } else if (!value) {
+      console.log(`⚠️ No selected value found in group "${groupName}"`);
     }
   }
   
@@ -419,16 +441,113 @@ function readSelectedFromGroup(g: HTMLElement): { value?: string; all: string[];
   const clickable = Array.from(g.querySelectorAll<HTMLElement>('input[type="radio"], [role="radio"], [role="option"], button, [data-value], [data-color], [data-size]'))
     .filter(el => !el.closest('[aria-hidden="true"], [hidden]'));
   
-  const labels = clickable.map(el => (
-    el.getAttribute("aria-label") || el.getAttribute("data-value") || el.getAttribute("data-color") || el.getAttribute("data-size") ||
-    (el.textContent || "").trim()
-  )).map(s => s?.replace(/\s+/g, " ").trim()).filter(Boolean) as string[];
+  const labels = clickable.map(el => {
+    // First try direct attributes on the clickable element
+    let label = el.getAttribute("aria-label") || el.getAttribute("data-value") || el.getAttribute("data-color") || el.getAttribute("data-size");
+    
+    // If no direct label, check child elements for aria-label (common for color swatches)
+    if (!label) {
+      const childWithLabel = el.querySelector('[aria-label]');
+      if (childWithLabel) {
+        label = childWithLabel.getAttribute("aria-label");
+      }
+    }
+    
+    // Fallback to text content
+    if (!label) {
+      label = (el.textContent || "").trim();
+    }
+    
+    return label;
+  }).map(s => s?.replace(/\s+/g, " ").trim()).filter(Boolean) as string[];
   
   let index = -1;
   for (let i=0;i<clickable.length;i++) {
     const el = clickable[i];
-    if ((el as HTMLInputElement).checked || el.getAttribute("aria-checked")==="true" || el.getAttribute("aria-selected")==="true" || el.getAttribute("data-selected")==="true" || /\bselected\b/i.test(el.className)) {
-      index = i; break;
+    
+    // Comprehensive "selected" detection function
+    const isSelected = (() => {
+      // 1. Standard form element checked state
+      if ((el as HTMLInputElement).checked) return true;
+      
+      // 2. ARIA attributes (standard accessibility)
+      if (el.getAttribute("aria-checked") === "true") return true;
+      if (el.getAttribute("aria-selected") === "true") return true;
+      if (el.getAttribute("aria-current") === "page" || el.getAttribute("aria-current") === "true") return true;
+      
+      // 3. Data attributes with "selected"
+      if (el.getAttribute("data-selected") === "true" || el.getAttribute("data-selected") === "1") return true;
+      
+      // 4. Check element's class for "selected" keyword
+      if (/\bselected\b/i.test(el.className)) return true;
+      
+      // 5. Check element's ID for "selected" keyword
+      if (el.id && /selected/i.test(el.id)) return true;
+      
+      // 6. Check ALL attributes for "selected" keyword (data-*, aria-*, etc.)
+      const allAttributes = Array.from(el.attributes);
+      for (const attr of allAttributes) {
+        // Check attribute name contains "selected"
+        if (/selected/i.test(attr.name)) {
+          // If the attribute name contains "selected", check if value is truthy
+          if (attr.value === 'true' || attr.value === '1' || attr.value === 'selected') {
+            return true;
+          }
+        }
+        // Check attribute value contains "selected" (for class-like patterns)
+        if (/\bselected\b/i.test(attr.value)) {
+          return true;
+        }
+      }
+      
+      // 7. Check parent element for "selected" in class/id
+      const parent = el.parentElement;
+      if (parent) {
+        if (/\bselected\b/i.test(parent.className)) return true;
+        if (parent.id && /selected/i.test(parent.id)) return true;
+      }
+      
+      // 8. Check nested children for "selected" class, id, or attributes
+      const childrenWithSelected = el.querySelectorAll('[class*="selected" i], [id*="selected" i], [data-selected], [aria-selected]');
+      if (childrenWithSelected.length > 0) {
+        for (const child of Array.from(childrenWithSelected)) {
+          if (/\bselected\b/i.test(child.className)) return true;
+          if ((child as HTMLElement).getAttribute('data-selected') === 'true') return true;
+          if ((child as HTMLElement).getAttribute('aria-selected') === 'true') return true;
+        }
+      }
+      
+      // 9. Check for "selected" in visible text content (Target pattern)
+      const visibleChildren = Array.from(el.querySelectorAll('*')).filter(child => {
+        const computedStyle = window.getComputedStyle(child as HTMLElement);
+        return computedStyle.display !== 'none' && computedStyle.visibility !== 'hidden';
+      });
+      
+      for (const child of visibleChildren) {
+        const text = child.textContent?.trim().toLowerCase() || '';
+        // Look for "selected" at the start of text (e.g., "selected, M" or "selected M")
+        if (/^selected[,\s]/i.test(text)) return true;
+      }
+      
+      // 10. Check visual indicators in inline styles (Walmart color swatches)
+      const style = el.getAttribute('style') || '';
+      const childStyles = Array.from(el.querySelectorAll('[style]')).map(child => 
+        (child as HTMLElement).getAttribute('style') || ''
+      ).join(' ');
+      
+      // Look for thick borders/outlines (common for selected swatches)
+      if (/(?:outline-width|border-width)\s*:\s*[0-9.]+(?:rem|px|em)/i.test(style + ' ' + childStyles)) {
+        // Make sure it's not a negligible border (0px, etc.)
+        const borderMatch = (style + ' ' + childStyles).match(/(?:outline-width|border-width)\s*:\s*([0-9.]+)(?:rem|px|em)/i);
+        if (borderMatch && parseFloat(borderMatch[1]) > 0.05) return true;
+      }
+      
+      return false;
+    })();
+    
+    if (isSelected) {
+      index = i; 
+      break;
     }
   }
   
@@ -745,6 +864,22 @@ function extractProductInfo() {
   };
 
   const getTitle = () => {
+    // Check if we're on Walmart - use <title> tag first
+    const isWalmart = /walmart\.com/i.test(window.location.hostname);
+    
+    if (isWalmart) {
+      const titleTag = document.querySelector('title');
+      if (titleTag && titleTag.textContent) {
+        const titleText = titleTag.textContent.trim();
+        // Clean up Walmart title (remove " - Walmart.com" suffix if present)
+        const cleanTitle = titleText.replace(/\s*[-–—]\s*Walmart\.com.*$/i, '').trim();
+        if (cleanTitle.length > 3 && cleanTitle.length < 300) {
+          console.log('🎯 Found Walmart title from <title> tag:', cleanTitle);
+          return { selector: 'title', value: cleanTitle };
+        }
+      }
+    }
+    
     // Amazon-specific title selectors (try these first)
     const amazonSelectors = [
       '#productTitle',
@@ -790,17 +925,196 @@ function extractProductInfo() {
   };
 
   const getImage = (metaSignals: any) => {
-    // First, try to get image from meta tags (more reliable)
+    console.log('🎯 Starting vendor-agnostic image extraction...');
+    
+    // PHASE 1: Meta tags (most reliable for social/preview)
     if (metaSignals.image) {
-      console.log('🎯 Found image from meta tags:', metaSignals.image, 'Source:', metaSignals.sourceMap?.image);
+      console.log('✅ Phase 1: Found image from meta tags:', metaSignals.image, 'Source:', metaSignals.sourceMap?.image);
       return { selector: null, value: metaSignals.image };
     }
 
-    // Fallback to DOM elements
-    const img = document.querySelector('img[src*="item"], img[src*="product"], img');
-    if (img) {
-      return getSelectorAndValue(img, 'src');
+    // PHASE 1.5: JSON-LD structured data (backup/additional images)
+    console.log('🎯 Phase 1.5: Trying JSON-LD structured data...');
+    const jsonLdImage = extractImageFromStructuredData();
+    if (jsonLdImage) {
+      console.log('✅ Phase 1.5: Found image from JSON-LD:', jsonLdImage);
+      return { selector: 'json-ld', value: jsonLdImage };
     }
+
+    // PHASE 2: Semantic HTML (vendor-agnostic standards)
+    console.log('🎯 Phase 2: Trying semantic image selectors...');
+    const semanticSelectors = [
+      '[itemprop="image"]',
+      '[property="og:image"]',
+      'link[rel="image_src"]',
+      '[data-main-image]',
+      '[data-product-image]'
+    ];
+    
+    for (const selector of semanticSelectors) {
+      const element = document.querySelector(selector);
+      if (element) {
+        const src = (element as HTMLImageElement).src || 
+                    element.getAttribute('content') || 
+                    element.getAttribute('href');
+        if (src && src.startsWith('http')) {
+          console.log('✅ Phase 2: Found image using semantic selector:', selector);
+          return { selector, value: src };
+        }
+      }
+    }
+
+    // PHASE 3: Generic patterns (vendor-agnostic)
+    console.log('🎯 Phase 3: Trying generic image patterns...');
+    const genericSelectors = [
+      'img[class*="product"][class*="main"]',
+      'img[class*="product"][class*="primary"]',
+      'img[src*="product"]',
+      'img[src*="item"]',
+      'img[alt*="product"]'
+    ];
+    
+    for (const selector of genericSelectors) {
+      const img = document.querySelector(selector);
+      if (img && (img as HTMLImageElement).src) {
+        console.log('✅ Phase 3: Found image using generic pattern:', selector);
+        return getSelectorAndValue(img, 'src');
+      }
+    }
+
+    // PHASE 4: Vendor-specific selectors (Amazon with data-a-dynamic-image)
+    console.log('🎯 Phase 4: Trying vendor-specific image selectors...');
+    const vendorImage = tryVendorSpecificImageSelectors();
+    if (vendorImage) {
+      console.log('✅ Phase 4: Found image using vendor-specific selector');
+      return vendorImage;
+    }
+
+    // PHASE 5: Final fallback - first large image
+    console.log('🎯 Phase 5: Final fallback - scanning for large images...');
+    const allImages = Array.from(document.querySelectorAll('img'))
+      .filter(img => {
+        const width = img.naturalWidth || img.width;
+        const height = img.naturalHeight || img.height;
+        return width > 200 && height > 200; // Reasonable product image size
+      });
+    
+    if (allImages.length > 0) {
+      console.log('✅ Phase 5: Found image using size heuristic');
+      return getSelectorAndValue(allImages[0], 'src');
+    }
+
+    return undefined;
+  };
+
+  // Helper: Extract image from JSON-LD structured data
+  const extractImageFromStructuredData = (): string | null => {
+    const jsonLdScripts = document.querySelectorAll('script[type="application/ld+json"]');
+    
+    for (const script of jsonLdScripts) {
+      try {
+        const data = JSON.parse(script.textContent || '');
+        const items = Array.isArray(data) ? data : [data];
+        
+        for (const item of items) {
+          if (item['@type'] === 'Product' || item['@type'] === 'http://schema.org/Product') {
+            // Check for image property
+            if (item.image) {
+              const imageUrl = Array.isArray(item.image) ? item.image[0] : item.image;
+              if (typeof imageUrl === 'string' && imageUrl.startsWith('http')) {
+                return imageUrl;
+              }
+              // Handle ImageObject format
+              if (typeof imageUrl === 'object' && imageUrl.url) {
+                return imageUrl.url;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        // Continue to next script
+        continue;
+      }
+    }
+    
+    return null;
+  };
+
+  // Helper: Vendor-specific image extraction
+  const tryVendorSpecificImageSelectors = () => {
+    const hostname = window.location.hostname;
+    
+    // Amazon-specific extraction
+    if (hostname.includes('amazon.')) {
+      return tryAmazonImageSelectors();
+    } else if (hostname.includes('target.')) {
+      return tryTargetImageSelectors();
+    } else if (hostname.includes('walmart.')) {
+      return tryWalmartImageSelectors();
+    }
+    
+    return undefined;
+  };
+
+  const tryAmazonImageSelectors = () => {
+    console.log('🏪 Trying Amazon-specific image selectors...');
+    const amazonImageSelectors = [
+      '#landingImage',
+      '#imgTagWrapperId img',
+      '#imageBlock img',
+      '.a-dynamic-image'
+    ];
+    
+    for (const selector of amazonImageSelectors) {
+      const img = document.querySelector(selector);
+      if (img && (img as HTMLImageElement).src) {
+        // Priority 1: data-old-hires (high resolution SL1500)
+        const hiRes = img.getAttribute('data-old-hires') || img.getAttribute('data-a-hires');
+        if (hiRes) {
+          console.log('✅ Found Amazon high-res image from data-old-hires:', hiRes);
+          return { selector, value: hiRes };
+        }
+        
+        // Priority 2: Parse data-a-dynamic-image JSON for highest resolution
+        const dynamicImages = img.getAttribute('data-a-dynamic-image');
+        if (dynamicImages) {
+          try {
+            const imageMap = JSON.parse(dynamicImages);
+            // Sort by width (first dimension) descending to get highest resolution
+            const sorted = Object.entries(imageMap).sort((a: any, b: any) => {
+              const widthA = Array.isArray(a[1]) ? a[1][0] : 0;
+              const widthB = Array.isArray(b[1]) ? b[1][0] : 0;
+              return widthB - widthA;
+            });
+            
+            if (sorted.length > 0) {
+              const highestResUrl = sorted[0][0];
+              const dimensions = sorted[0][1];
+              console.log(`✅ Found Amazon image from data-a-dynamic-image: ${highestResUrl} (${dimensions})`);
+              return { selector, value: highestResUrl };
+            }
+          } catch (e) {
+            console.log('⚠️ Failed to parse data-a-dynamic-image JSON:', e);
+          }
+        }
+        
+        // Priority 3: Fallback to src attribute
+        console.log('✅ Found Amazon image from src attribute');
+        return getSelectorAndValue(img, 'src');
+      }
+    }
+    return undefined;
+  };
+
+  const tryTargetImageSelectors = () => {
+    console.log('🏪 Trying Target-specific image selectors...');
+    // Add Target-specific selectors if needed
+    return undefined;
+  };
+
+  const tryWalmartImageSelectors = () => {
+    console.log('🏪 Trying Walmart-specific image selectors...');
+    // Add Walmart-specific selectors if needed
     return undefined;
   };
 

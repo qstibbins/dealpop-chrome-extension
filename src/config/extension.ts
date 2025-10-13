@@ -13,12 +13,10 @@ export const EXTENSION_CONFIG = {
    * Development: http://localhost:5173/#/login?extension=true
    * Production: https://your-domain.com/login?extension=true
    */
-  // For now, always use localhost during development
-  // Change this to production URL when ready to deploy
-  DASHBOARD_URL: 'http://localhost:5173/?extension=true#/login',
-  //  DASHBOARD_URL: 'http://localhost:5173/#/login?extension=true'
-  // Production URL (uncomment when deploying):
-  // DASHBOARD_URL: 'https://your-dashboard-domain.com/#/login?extension=true',
+  // Dashboard URL - switches based on environment
+  DASHBOARD_URL: import.meta.env.MODE === 'production' 
+    ? 'http://dealpopfrontend.s3-website.us-east-2.amazonaws.com/?extension=true#/login'
+    : 'http://localhost:5173/?extension=true#/login',
 
   /**
    * Authentication timeout (in milliseconds)
