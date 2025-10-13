@@ -5,7 +5,6 @@
   "description": "Track product prices and get notified when they drop",
   "permissions": ["activeTab", "scripting", "storage", "tabs"],
   "host_permissions": [
-    "<all_urls>",
     "https://deal-pop.firebaseapp.com/*",
     "https://*.googleapis.com/*",
     "https://accounts.google.com/*"
