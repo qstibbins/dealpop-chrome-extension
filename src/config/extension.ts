@@ -14,9 +14,9 @@ export const EXTENSION_CONFIG = {
    * Production: https://your-domain.com/login?extension=true
    */
   // Dashboard URL - switches based on environment
-  DASHBOARD_URL: import.meta.env.MODE === 'production' 
-    ? 'http://dealpopfrontend.s3-website.us-east-2.amazonaws.com/?extension=true#/login'
-    : 'http://localhost:5173/?extension=true#/login',
+  DASHBOARD_URL: import.meta.env.VITE_DASHBOARD_URL || (import.meta.env.MODE === 'production' 
+    ? 'https://dealpop.co/?extension=true#/login'
+    : 'http://localhost:5173/?extension=true#/login'),
 
   /**
    * Authentication timeout (in milliseconds)
@@ -39,7 +39,7 @@ export const EXTENSION_CONFIG = {
   /**
    * Debug mode - set to true for verbose logging
    */
-  DEBUG: import.meta.env.MODE !== 'production',
+  DEBUG: import.meta.env.VITE_EXTENSION_DEBUG === 'true' || import.meta.env.MODE !== 'production',
 
   /**
    * Feature Flags

@@ -40,15 +40,21 @@ class ApiClient {
 
   private async getAuthHeaders(): Promise<Record<string, string>> {
     let token = await getStoredToken();
+    console.log('🔍 Stored token:', token ? 'Present' : 'Missing');
     
     // If no token or token might be expired, try to get a fresh one
     if (!token) {
+      console.log('🔍 No stored token, trying to get fresh token...');
       token = await getFreshToken();
+      console.log('🔍 Fresh token:', token ? 'Present' : 'Missing');
     }
 
     if (!token) {
-      throw new Error('No authentication token available');
+      console.error('❌ No authentication token available');
+      throw new Error('No authentication token available. Please sign in again.');
     }
+
+    console.log('🔍 Using token for API request:', token.substring(0, 20) + '...');
 
     return {
       'Authorization': `Bearer ${token}`,

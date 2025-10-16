@@ -40,6 +40,7 @@ export interface AuthError {
 export async function signInWithGoogle(): Promise<{ user: FirebaseUser; token: string }> {
   try {
     debugLog('Opening dashboard for authentication...', EXTENSION_CONFIG.DASHBOARD_URL);
+    console.log('🔍 Dashboard URL being opened:', EXTENSION_CONFIG.DASHBOARD_URL);
     
     return new Promise((resolve, reject) => {
       // Create auth tab
@@ -226,6 +227,30 @@ export async function signOutUser(): Promise<void> {
   }
 }
 
+// Clear all auth data (useful for debugging/troubleshooting)
+export async function clearAllAuthData(): Promise<void> {
+  try {
+    debugLog('Clearing all authentication data...');
+    
+    // Clear all auth-related storage
+    await chrome.storage.local.remove([
+      'firebaseToken', 
+      'firebaseUser', 
+      'isAuthenticated', 
+      'tokenTimestamp',
+      'authState',
+      'userData'
+    ]);
+    
+    debugLog('All authentication data cleared');
+    successLog('Authentication data cleared successfully');
+    
+  } catch (error) {
+    errorLog('Clear auth data error:', error);
+    throw error;
+  }
+}
+
 // Get current user
 export function getCurrentUser(): User | null {
   return auth.currentUser;
@@ -234,6 +259,7 @@ export function getCurrentUser(): User | null {
 // Get stored token
 export async function getStoredToken(): Promise<string | null> {
   const result = await chrome.storage.local.get(['firebaseToken']);
+  console.log('🔍 getStoredToken result:', result);
   return result.firebaseToken || null;
 }
 

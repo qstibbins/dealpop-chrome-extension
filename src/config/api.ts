@@ -3,7 +3,7 @@
 
 export const API_CONFIG = {
   // Base URL for your backend API
-  BASE_URL: import.meta.env.MODE === 'production' ? 'https://bzu99jbwnr.us-east-2.awsapprunner.com' : 'http://localhost:3000',
+  BASE_URL: import.meta.env.VITE_API_BASE_URL || (import.meta.env.MODE === 'production' ? 'https://bzu99jbwnr.us-east-2.awsapprunner.com' : 'http://localhost:3000'),
   
   // API Endpoints
   ENDPOINTS: {

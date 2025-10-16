@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { signInWithGoogle, signOutUser, initializeAuthState, onAuthStateChange, FirebaseUser } from '../services/firebaseAuth'
+import { signInWithGoogle, signOutUser, initializeAuthState, onAuthStateChange, FirebaseUser, clearAllAuthData } from '../services/firebaseAuth'
 import { trackProduct, ProductData } from '../services/apiClient'
 import { EXTENSION_CONFIG } from '../config/extension'
 
@@ -43,7 +43,7 @@ const App: React.FC<AppProps> = () => {
 
   const [showSettings, setShowSettings] = useState(false);
   const [extractionMethod, setExtractionMethod] = useState<'dom' | 'ai'>('dom');
-  
+  const [isExtracting, setIsExtracting] = useState(true);
   
   
 
@@ -60,10 +60,22 @@ const App: React.FC<AppProps> = () => {
           setIsLoggedIn(authState.isAuthenticated);
           setUser(authState.user);
           setAuthError(null);
+          
+          // If user just signed in, start extracting product info
+          if (authState.isAuthenticated && !isLoggedIn) {
+            extractProductInfo();
+          }
         });
 
-        // Extract product info
-        await extractProductInfo();
+        // Only extract product info if user is logged in
+        if (authState.isAuthenticated) {
+          console.log('🔍 User is authenticated, starting product extraction...');
+          await extractProductInfo();
+        } else {
+          // User not logged in, stop loading state
+          console.log('🔍 User not authenticated, stopping loading state');
+          setIsExtracting(false);
+        }
 
         // Cleanup function
         return () => {
@@ -72,56 +84,93 @@ const App: React.FC<AppProps> = () => {
       } catch (error) {
         console.error('Failed to initialize app:', error);
         setAuthError('Failed to initialize authentication');
+        setIsExtracting(false); // Make sure to hide loading on error
       }
     };
 
     initializeApp();
-  }, []);
+  }, []); // Empty dependency array is correct - we only want this to run once
 
   const extractProductInfo = async () => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    chrome.tabs.sendMessage(tab.id!, { command: "extractProductInfo" }, (productInfo) => {
-      if (chrome.runtime.lastError || !productInfo) {
-        console.log('❌ Extraction failed:', chrome.runtime.lastError);
-        // Handle error or missing info
-        setProductInfo({
-          title: { selector: null, value: "Product" },
-          price: { selector: null, value: "" },
-          image: { selector: null, value: "icon.png" },
-          url: "",
-          variants: {}
-        });
-        return;
-      }
-      
-      console.log('✅ Received product info:', productInfo);
-      
-      // Validate the data structure
-      if (typeof productInfo === 'string' || productInfo.length > 1000) {
-        console.error('❌ Invalid product info received - looks like raw page content');
-        setProductInfo({
-          title: { selector: null, value: "Invalid Data Received" },
-          price: { selector: null, value: "" },
-          image: { selector: null, value: "icon.png" },
-          url: "",
-          variants: {}
-        });
-        return;
-      }
-      
-      setProductInfo(productInfo);
-      
-      // Auto-fill price goal if price was extracted
-      if (productInfo.price?.value) {
-        // Extract just the numeric price value
-        const priceMatch = productInfo.price.value.match(/[\d,]+(\.\d{2})?/);
-        if (priceMatch) {
-          const numericPrice = priceMatch[0].replace(/,/g, '');
-          setPriceGoal(numericPrice);
-          console.log('💰 Auto-filled price goal:', numericPrice);
+    console.log('🔍 extractProductInfo called - setting isExtracting to true');
+    setIsExtracting(true);
+    
+    // Force a re-render to ensure loading state is visible
+    await new Promise(resolve => setTimeout(resolve, 50));
+    
+    // Set a timeout to prevent loading state from getting stuck
+    const timeoutId = setTimeout(() => {
+      console.log('⏰ Product extraction timeout - falling back to default data');
+      setIsExtracting(false);
+      setProductInfo({
+        title: { selector: null, value: "Product" },
+        price: { selector: null, value: "" },
+        image: { selector: null, value: "icon.png" },
+        url: "",
+        variants: {}
+      });
+    }, 10000); // 10 second timeout
+    
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      chrome.tabs.sendMessage(tab.id!, { command: "extractProductInfo" }, (productInfo) => {
+        clearTimeout(timeoutId); // Clear timeout since we got a response
+        setIsExtracting(false);
+        
+        if (chrome.runtime.lastError || !productInfo) {
+          console.log('❌ Extraction failed:', chrome.runtime.lastError);
+          // Handle error or missing info
+          setProductInfo({
+            title: { selector: null, value: "Product" },
+            price: { selector: null, value: "" },
+            image: { selector: null, value: "icon.png" },
+            url: "",
+            variants: {}
+          });
+          return;
         }
-      }
-    });
+        
+        console.log('✅ Received product info:', productInfo);
+        
+        // Validate the data structure
+        if (typeof productInfo === 'string' || productInfo.length > 1000) {
+          console.error('❌ Invalid product info received - looks like raw page content');
+          setProductInfo({
+            title: { selector: null, value: "Invalid Data Received" },
+            price: { selector: null, value: "" },
+            image: { selector: null, value: "icon.png" },
+            url: "",
+            variants: {}
+          });
+          return;
+        }
+        
+        setProductInfo(productInfo);
+        
+        // Auto-fill price goal if price was extracted
+        if (productInfo.price?.value) {
+          // Extract just the numeric price value
+          const priceMatch = productInfo.price.value.match(/[\d,]+(\.\d{2})?/);
+          if (priceMatch) {
+            const numericPrice = priceMatch[0].replace(/,/g, '');
+            setPriceGoal(numericPrice);
+            console.log('💰 Auto-filled price goal:', numericPrice);
+          }
+        }
+      });
+    } catch (error) {
+      clearTimeout(timeoutId); // Clear timeout on error
+      console.error('❌ Failed to extract product info:', error);
+      setIsExtracting(false);
+      // Set fallback data on error
+      setProductInfo({
+        title: { selector: null, value: "Product" },
+        price: { selector: null, value: "" },
+        image: { selector: null, value: "icon.png" },
+        url: "",
+        variants: {}
+      });
+    }
   };
 
   const handleGoogleSignIn = async () => {
@@ -164,6 +213,20 @@ const App: React.FC<AppProps> = () => {
     } catch (error) {
       console.error('❌ Sign out failed:', error);
       setAuthError(error instanceof Error ? error.message : 'Sign out failed');
+    }
+  };
+
+  const handleClearAuthData = async () => {
+    try {
+      await clearAllAuthData();
+      setUser(null);
+      setIsLoggedIn(false);
+      setAuthError(null);
+      console.log('✅ Auth data cleared - please sign in again');
+      alert('Auth data cleared! Please sign in again.');
+    } catch (error) {
+      console.error('❌ Clear auth data failed:', error);
+      setAuthError(error instanceof Error ? error.message : 'Failed to clear auth data');
     }
   };
 
@@ -292,6 +355,9 @@ const App: React.FC<AppProps> = () => {
     );
   }
 
+  // Debug logging
+  console.log('🔍 Render state:', { isLoggedIn, isExtracting, user: !!user });
+  
   return (
     <div className="bg-primary-100 border-2 border-gray-200 rounded-[20px] p-5 shadow-sm mb-4">
       {/* User Info */}
@@ -317,101 +383,114 @@ const App: React.FC<AppProps> = () => {
         </div>
       )}
       
-      <div className="flex justify-between items-start mb-4">
-        <div className="flex items-center">
-          <img 
-            src={productInfo?.meta?.image || productInfo?.image?.value || "icon.png"} 
-            alt="Product Image" 
-            className="w-16 h-16 rounded-xl object-cover mr-4 border border-gray-200 bg-white"
-          />
-          <div>
-            <div 
-              className="text-lg font-semibold mb-1" 
-              title={productInfo?.title?.value || "Product Name"}
-            >
-              {truncateProductName(productInfo?.title?.value || "Product Name")}
-            </div>
-            <div className="text-xl font-bold text-gray-800 mb-0.5">
-              {productInfo?.price?.value ? productInfo.price.value : ""}
-            </div>
-            <div className="text-sm text-gray-500 mb-2">
-              {productInfo?.url ? new URL(productInfo.url).hostname : ""}
-            </div>
-            {productInfo?.meta?.image && (
-              <div className="text-xs text-blue-600 mb-1">
-                📷 Meta image found
+      {isExtracting ? (
+        <div className="text-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-3"></div>
+          <p className="text-sm text-gray-600 mb-1">Extracting product information...</p>
+          <p className="text-xs text-gray-500">This may take a few seconds</p>
+        </div>
+      ) : (
+        <div className="flex justify-between items-start mb-4">
+          <div className="flex items-center">
+            <img 
+              src={productInfo?.meta?.image || productInfo?.image?.value || "icon.png"} 
+              alt="Product Image" 
+              className="w-16 h-16 rounded-xl object-cover mr-4 border border-gray-200 bg-white"
+            />
+            <div>
+              <div 
+                className="text-lg font-semibold mb-1" 
+                title={productInfo?.title?.value || "Product Name"}
+              >
+                {truncateProductName(productInfo?.title?.value || "Product Name")}
               </div>
+              <div className="text-xl font-bold text-gray-800 mb-0.5">
+                {productInfo?.price?.value ? productInfo.price.value : ""}
+              </div>
+              <div className="text-sm text-gray-500 mb-2">
+                {productInfo?.url ? new URL(productInfo.url).hostname : ""}
+              </div>
+              {productInfo?.meta?.image && (
+                <div className="text-xs text-blue-600 mb-1">
+                  📷 Meta image found
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex space-x-2">
+            {EXTENSION_CONFIG.FEATURES.SHOW_SETTINGS_BUTTON && (
+              <button 
+                onClick={() => setShowSettings(true)}
+                className="text-gray-500 hover:text-gray-700 text-sm"
+                title="Settings"
+              >
+                ⚙️
+              </button>
             )}
+            <button 
+              onClick={handleSignOut}
+              className="text-gray-500 hover:text-gray-700 text-sm"
+              title="Sign Out"
+            >
+              🚪
+            </button>
           </div>
         </div>
-        <div className="flex space-x-2">
-          {EXTENSION_CONFIG.FEATURES.SHOW_SETTINGS_BUTTON && (
-            <button 
-              onClick={() => setShowSettings(true)}
-              className="text-gray-500 hover:text-gray-700 text-sm"
-              title="Settings"
-            >
-              ⚙️
-            </button>
-          )}
-          <button 
-            onClick={handleSignOut}
-            className="text-gray-500 hover:text-gray-700 text-sm"
-            title="Sign Out"
-          >
-            🚪
-          </button>
-        </div>
-      </div>
+      )}
 
       {/* Product Extraction */}
-      <div className="mb-4">
-        <div className="flex space-x-2 mb-2">
-                      <button
+      {!isExtracting && (
+        <div className="mb-4">
+          <div className="flex space-x-2 mb-2">
+            <button
               onClick={extractProductInfo}
-              className="px-3 py-1 rounded text-sm font-medium bg-blue-500 text-white"
+              className="px-3 py-1 rounded text-sm font-medium bg-blue-500 text-white hover:bg-blue-600 transition-colors"
             >
               Extract Product Info
             </button>
+          </div>
         </div>
-      </div>
+      )}
 
-
-      
-      <label className="block mb-2 text-sm">
-        Price Goal 
-        <input 
-          type="number" 
-          value={priceGoal}
-          onChange={(e) => setPriceGoal(e.target.value)}
-          placeholder="$300" 
-          className="border border-gray-200 rounded-md py-1.5 px-2.5 text-base mt-0.5 mb-2.5 w-full box-border"
-        />
-      </label>
-      
-      <label className="block mb-2 text-sm">
-        Tracking Period
-        <select 
-          value={trackingPeriod}
-          onChange={(e) => setTrackingPeriod(e.target.value)}
-          className="border border-gray-200 rounded-md py-1.5 px-2.5 text-base mt-0.5 mb-2.5 w-full box-border"
-        >
-          <option value="30">30 days</option>
-          <option value="60">60 days</option>
-        </select>
-      </label>
-      
-      <button 
-        onClick={handleTrackProduct}
-        disabled={isTracking}
-        className={`bg-primary-200 text-gray-800 border-none rounded-lg py-2.5 w-full mt-2 transition-colors font-semibold text-lg ${
-          isTracking 
-            ? 'opacity-50 cursor-not-allowed' 
-            : 'cursor-pointer hover:bg-primary-300'
-        }`}
-      >
-        {isTracking ? '⏳ Tracking...' : '+ Track This Product'}
-      </button>
+      {/* Form fields - only show when not extracting */}
+      {!isExtracting && (
+        <>
+          <label className="block mb-2 text-sm">
+            Price Goal 
+            <input 
+              type="number" 
+              value={priceGoal}
+              onChange={(e) => setPriceGoal(e.target.value)}
+              placeholder="$300" 
+              className="border border-gray-200 rounded-md py-1.5 px-2.5 text-base mt-0.5 mb-2.5 w-full box-border"
+            />
+          </label>
+          
+          <label className="block mb-2 text-sm">
+            Tracking Period
+            <select 
+              value={trackingPeriod}
+              onChange={(e) => setTrackingPeriod(e.target.value)}
+              className="border border-gray-200 rounded-md py-1.5 px-2.5 text-base mt-0.5 mb-2.5 w-full box-border"
+            >
+              <option value="30">30 days</option>
+              <option value="60">60 days</option>
+            </select>
+          </label>
+          
+          <button 
+            onClick={handleTrackProduct}
+            disabled={isTracking}
+            className={`bg-primary-200 text-gray-800 border-none rounded-lg py-2.5 w-full mt-2 transition-colors font-semibold text-lg ${
+              isTracking 
+                ? 'opacity-50 cursor-not-allowed' 
+                : 'cursor-pointer hover:bg-primary-300'
+            }`}
+          >
+            {isTracking ? '⏳ Tracking...' : '+ Track This Product'}
+          </button>
+        </>
+      )}
     </div>
   );
 };

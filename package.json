@@ -15,7 +15,11 @@
     "test:sites": "node test-different-sites.js",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "debug:config": "node debug-vite-config.js",
+    "debug:build": "node debug-build.js",
+    "debug:build:dev": "node debug-build.js development",
+    "debug:build:prod": "node debug-build.js production"
   },
   "dependencies": {
     "@types/react-router-dom": "^5.3.3",

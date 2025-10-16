@@ -1,9 +1,25 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
 import { copyFileSync, existsSync, mkdirSync } from 'fs'
+import { config } from 'dotenv'
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  // Explicitly load the correct .env file
+  if (mode === 'production') {
+    config({ path: '.env.prod' });
+  } else {
+    config({ path: '.env.development' });
+  }
+  
+  // Load environment variables based on mode
+  const env = loadEnv(mode, process.cwd(), '')
+  
+  console.log('🔍 Build mode:', mode);
+  console.log('🔍 Environment variables loaded:', Object.keys(env).filter(key => key.startsWith('VITE_')));
+  console.log('🔍 Firebase Project ID from env:', env.VITE_FIREBASE_PROJECT_ID);
+  
+  return {
   plugins: [
     react(),
     {
@@ -71,5 +87,20 @@ export default defineConfig({
       '@': resolve(__dirname, 'src')
     }
   },
-  base: './'
+  base: './',
+  define: {
+    'import.meta.env.VITE_FIREBASE_API_KEY': JSON.stringify(env.VITE_FIREBASE_API_KEY),
+    'import.meta.env.VITE_FIREBASE_AUTH_DOMAIN': JSON.stringify(env.VITE_FIREBASE_AUTH_DOMAIN),
+    'import.meta.env.VITE_FIREBASE_PROJECT_ID': JSON.stringify(env.VITE_FIREBASE_PROJECT_ID),
+    'import.meta.env.VITE_FIREBASE_STORAGE_BUCKET': JSON.stringify(env.VITE_FIREBASE_STORAGE_BUCKET),
+    'import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID': JSON.stringify(env.VITE_FIREBASE_MESSAGING_SENDER_ID),
+    'import.meta.env.VITE_FIREBASE_APP_ID': JSON.stringify(env.VITE_FIREBASE_APP_ID),
+    'import.meta.env.VITE_API_BASE_URL': JSON.stringify(env.VITE_API_BASE_URL),
+    'import.meta.env.VITE_DASHBOARD_URL': JSON.stringify(env.VITE_DASHBOARD_URL),
+    'import.meta.env.VITE_EXTENSION_DEBUG': JSON.stringify(env.VITE_EXTENSION_DEBUG),
+    'import.meta.env.VITE_EXTENSION_VERSION': JSON.stringify(env.VITE_EXTENSION_VERSION),
+    'import.meta.env.VITE_EXTENSION_ID': JSON.stringify(env.VITE_EXTENSION_ID),
+    __APP_ENV__: JSON.stringify(mode),
+  }
+  }
 }) 
