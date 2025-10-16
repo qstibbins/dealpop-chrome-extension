@@ -15,7 +15,7 @@ export const EXTENSION_CONFIG = {
    */
   // Dashboard URL - switches based on environment
   DASHBOARD_URL: import.meta.env.VITE_DASHBOARD_URL || (import.meta.env.MODE === 'production' 
-    ? 'https://dealpop.co/?extension=true#/login'
+    ? 'https://www.dealpop.co/?extension=true#/login'
     : 'http://localhost:5173/?extension=true#/login'),
 
   /**
