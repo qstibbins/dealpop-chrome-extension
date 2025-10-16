@@ -2,7 +2,7 @@
 
 import { State } from './state.js';
 import { extractPrice } from './priceUtils.js';
-import { getStoredToken, getFreshToken } from '../services/firebaseAuth.js';
+import { getStoredToken, getFreshToken } from '../services/auth.js';
 import { API_CONFIG } from '../config/api.js';
 
 // Helper functions for data transformation
@@ -236,8 +236,8 @@ async function handleAuthSuccess(msg: any, sender: chrome.runtime.MessageSender,
 
     // Store user data and token in Chrome storage
     await chrome.storage.local.set({
-      firebaseUser: msg.user,
-      firebaseToken: msg.token,
+      authUser: msg.user,
+      authToken: msg.token,
       isAuthenticated: true,
       tokenTimestamp: Date.now()
     });
@@ -258,14 +258,14 @@ async function handleAuthSuccess(msg: any, sender: chrome.runtime.MessageSender,
 // Get current authentication status
 async function handleGetAuthStatus(sendResponse: (response: any) => void) {
   try {
-    const result = await chrome.storage.local.get(['firebaseUser', 'firebaseToken', 'isAuthenticated']);
+    const result = await chrome.storage.local.get(['authUser', 'authToken', 'isAuthenticated']);
     
-    if (result.isAuthenticated && result.firebaseUser && result.firebaseToken) {
+    if (result.isAuthenticated && result.authUser && result.authToken) {
       sendResponse({ 
         success: true, 
         isAuthenticated: true, 
-        user: result.firebaseUser,
-        token: result.firebaseToken
+        user: result.authUser,
+        token: result.authToken
       });
     } else {
       sendResponse({ 
@@ -285,7 +285,7 @@ async function handleGetAuthStatus(sendResponse: (response: any) => void) {
 // Handle sign out
 async function handleSignOut(sendResponse: (response: any) => void) {
   try {
-    await chrome.storage.local.remove(['firebaseUser', 'firebaseToken', 'isAuthenticated', 'tokenTimestamp']);
+    await chrome.storage.local.remove(['authUser', 'authToken', 'isAuthenticated', 'tokenTimestamp']);
     console.log('✅ Signed out successfully');
     sendResponse({ success: true });
   } catch (error) {

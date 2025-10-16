@@ -1,16 +1,8 @@
-import { 
-  signInWithPopup, 
-  signInWithRedirect,
-  getRedirectResult,
-  signOut, 
-  onAuthStateChanged, 
-  User,
-  getIdToken
-} from 'firebase/auth';
-import { auth, googleProvider } from '../config/firebase';
+// Simple token-based authentication without Firebase
+// This service handles authentication by communicating with the dashboard
 import { EXTENSION_CONFIG, debugLog, errorLog, successLog } from '../config/extension';
 
-export interface FirebaseUser {
+export interface AuthUser {
   uid: string;
   email: string | null;
   displayName: string | null;
@@ -18,7 +10,7 @@ export interface FirebaseUser {
 }
 
 export interface AuthState {
-  user: FirebaseUser | null;
+  user: AuthUser | null;
   token: string | null;
   isAuthenticated: boolean;
 }
@@ -30,14 +22,10 @@ export interface AuthError {
 }
 
 /**
- * Sign in with Google via Dashboard
- * 
- * Opens your existing dashboard in a new tab, where the user authenticates
- * with Firebase. The dashboard then sends the auth data back to the extension.
- * 
- * Your dashboard's AuthContext.handleExtensionAuth() handles sending the message.
+ * Sign in via Dashboard - Opens dashboard for authentication
+ * Dashboard sends back auth data via chrome.runtime.sendMessage
  */
-export async function signInWithGoogle(): Promise<{ user: FirebaseUser; token: string }> {
+export async function signInWithGoogle(): Promise<{ user: AuthUser; token: string }> {
   try {
     debugLog('Opening dashboard for authentication...', EXTENSION_CONFIG.DASHBOARD_URL);
     console.log('🔍 Dashboard URL being opened:', EXTENSION_CONFIG.DASHBOARD_URL);
@@ -99,7 +87,7 @@ export async function signInWithGoogle(): Promise<{ user: FirebaseUser; token: s
             }
             
             // Store the auth data
-            const firebaseUser: FirebaseUser = {
+            const authUser: AuthUser = {
               uid: message.user.uid,
               email: message.user.email,
               displayName: message.user.displayName,
@@ -108,13 +96,13 @@ export async function signInWithGoogle(): Promise<{ user: FirebaseUser; token: s
             
             // Store in Chrome storage
             chrome.storage.local.set({
-              firebaseToken: message.token,
-              firebaseUser: firebaseUser,
+              authToken: message.token,
+              authUser: authUser,
               isAuthenticated: true,
               tokenTimestamp: Date.now() // Track when token was received
             }).then(() => {
               debugLog('Auth data stored in Chrome storage');
-              resolve({ user: firebaseUser, token: message.token });
+              resolve({ user: authUser, token: message.token });
             }).catch((err) => {
               const error: AuthError = {
                 code: 'STORAGE_ERROR',
@@ -216,7 +204,7 @@ export async function signOutUser(): Promise<void> {
     debugLog('Starting logout process...');
     
     // Clear extension's auth state
-    await chrome.storage.local.remove(['firebaseToken', 'firebaseUser', 'isAuthenticated', 'tokenTimestamp']);
+    await chrome.storage.local.remove(['authToken', 'authUser', 'isAuthenticated', 'tokenTimestamp']);
     debugLog('Extension auth state cleared');
     
     successLog('Extension logout completed successfully');
@@ -234,8 +222,8 @@ export async function clearAllAuthData(): Promise<void> {
     
     // Clear all auth-related storage
     await chrome.storage.local.remove([
-      'firebaseToken', 
-      'firebaseUser', 
+      'authToken', 
+      'authUser', 
       'isAuthenticated', 
       'tokenTimestamp',
       'authState',
@@ -251,45 +239,32 @@ export async function clearAllAuthData(): Promise<void> {
   }
 }
 
-// Get current user
-export function getCurrentUser(): User | null {
-  return auth.currentUser;
-}
-
 // Get stored token
 export async function getStoredToken(): Promise<string | null> {
-  const result = await chrome.storage.local.get(['firebaseToken']);
+  const result = await chrome.storage.local.get(['authToken']);
   console.log('🔍 getStoredToken result:', result);
-  return result.firebaseToken || null;
+  return result.authToken || null;
+}
+
+// Get fresh token (for compatibility with existing code)
+export async function getFreshToken(): Promise<string | null> {
+  // For now, just return the stored token
+  // In the future, you could implement token refresh logic here
+  return await getStoredToken();
 }
 
 // Get stored user
-export async function getStoredUser(): Promise<FirebaseUser | null> {
-  const result = await chrome.storage.local.get(['firebaseUser']);
-  return result.firebaseUser || null;
+export async function getStoredUser(): Promise<AuthUser | null> {
+  const result = await chrome.storage.local.get(['authUser']);
+  return result.authUser || null;
 }
 
 // Check if user is authenticated
 export async function isAuthenticated(): Promise<boolean> {
-  const result = await chrome.storage.local.get(['isAuthenticated', 'firebaseToken']);
-  return result.isAuthenticated === true && !!result.firebaseToken;
+  const result = await chrome.storage.local.get(['isAuthenticated', 'authToken']);
+  return result.isAuthenticated === true && !!result.authToken;
 }
 
-// Get fresh token (refreshes if needed)
-export async function getFreshToken(): Promise<string | null> {
-  const user = getCurrentUser();
-  if (user) {
-    try {
-      const token = await getIdToken(user, true); // Force refresh
-      await chrome.storage.local.set({ firebaseToken: token });
-      return token;
-    } catch (error) {
-      console.error('Error getting fresh token:', error);
-      return null;
-    }
-  }
-  return null;
-}
 
 // Listen to auth state changes (from storage, not Firebase directly)
 export function onAuthStateChange(callback: (authState: AuthState) => void): () => void {
@@ -297,7 +272,7 @@ export function onAuthStateChange(callback: (authState: AuthState) => void): () 
   const storageListener = (changes: { [key: string]: chrome.storage.StorageChange }, areaName: string) => {
     if (areaName === 'local') {
       // Check if auth-related storage changed
-      if (changes.firebaseToken || changes.firebaseUser || changes.isAuthenticated) {
+      if (changes.authToken || changes.authUser || changes.isAuthenticated) {
         // Re-read auth state and notify callback
         initializeAuthState().then(callback);
       }
@@ -314,11 +289,14 @@ export function onAuthStateChange(callback: (authState: AuthState) => void): () 
 
 // Initialize auth state from storage
 export async function initializeAuthState(): Promise<AuthState> {
-  const result = await chrome.storage.local.get(['firebaseToken', 'firebaseUser', 'isAuthenticated']);
+  const result = await chrome.storage.local.get(['authToken', 'authUser', 'isAuthenticated']);
   
   return {
-    user: result.firebaseUser || null,
-    token: result.firebaseToken || null,
-    isAuthenticated: result.isAuthenticated === true && !!result.firebaseToken
+    user: result.authUser || null,
+    token: result.authToken || null,
+    isAuthenticated: result.isAuthenticated === true && !!result.authToken
   };
 }
+
+// Compatibility exports for existing code
+export type FirebaseUser = AuthUser;

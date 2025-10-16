@@ -1,4 +1,4 @@
-import { getStoredToken, getFreshToken } from './firebaseAuth';
+import { getStoredToken, getFreshToken } from './auth';
 import { API_CONFIG } from '../config/api';
 
 export interface ApiResponse<T = any> {

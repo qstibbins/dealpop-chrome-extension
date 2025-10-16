@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { signInWithGoogle, signOutUser, initializeAuthState, onAuthStateChange, FirebaseUser, clearAllAuthData } from '../services/firebaseAuth'
+import { signInWithGoogle, signOutUser, initializeAuthState, onAuthStateChange, AuthUser, clearAllAuthData } from '../services/auth'
 import { trackProduct, ProductData } from '../services/apiClient'
 import { EXTENSION_CONFIG } from '../config/extension'
 
@@ -31,7 +31,7 @@ interface AppProps {}
 
 const App: React.FC<AppProps> = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [productInfo, setProductInfo] = useState<ProductInfo | null>(null);
 
   const [showConfirmation, setShowConfirmation] = useState(false);
