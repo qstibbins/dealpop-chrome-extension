@@ -50,6 +50,12 @@ export const EXTENSION_CONFIG = {
      * Set to false to hide the button
      */
     SHOW_FLOATING_BUTTON: false,
+
+    /**
+     * Enable/disable the settings button in popup
+     * Set to false to hide the settings button
+     */
+    SHOW_SETTINGS_BUTTON: false,
   },
 };
 

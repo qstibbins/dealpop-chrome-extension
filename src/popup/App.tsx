@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { signInWithGoogle, signOutUser, initializeAuthState, onAuthStateChange, FirebaseUser } from '../services/firebaseAuth'
 import { trackProduct, ProductData } from '../services/apiClient'
+import { EXTENSION_CONFIG } from '../config/extension'
 
 // Define ProductInfo type based on what the content script actually returns
 interface ProductInfo {
@@ -344,13 +345,15 @@ const App: React.FC<AppProps> = () => {
           </div>
         </div>
         <div className="flex space-x-2">
-          <button 
-            onClick={() => setShowSettings(true)}
-            className="text-gray-500 hover:text-gray-700 text-sm"
-            title="Settings"
-          >
-            ⚙️
-          </button>
+          {EXTENSION_CONFIG.FEATURES.SHOW_SETTINGS_BUTTON && (
+            <button 
+              onClick={() => setShowSettings(true)}
+              className="text-gray-500 hover:text-gray-700 text-sm"
+              title="Settings"
+            >
+              ⚙️
+            </button>
+          )}
           <button 
             onClick={handleSignOut}
             className="text-gray-500 hover:text-gray-700 text-sm"
