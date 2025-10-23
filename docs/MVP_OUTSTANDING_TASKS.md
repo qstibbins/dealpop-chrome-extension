@@ -269,7 +269,6 @@ dist/icon.png            1.21 KB
 - [ ] Address any review feedback
 
 **Files to Create:**
-- `PRIVACY_POLICY.md`
 - `store-assets/` directory with images
 - `docs/USER_GUIDE.md`
 - `docs/FAQ.md`

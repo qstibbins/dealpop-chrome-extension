@@ -3,6 +3,7 @@
   "name": "DealPop Tracker",
   "version": "1.0.0",
   "description": "Track product prices and get notified when they drop",
+  "privacy_policy": "https://d13kgequzx7lkd.cloudfront.net/beta/privacy",
   "permissions": ["activeTab", "scripting", "storage", "tabs"],
   "host_permissions": [
     "https://deal-pop.firebaseapp.com/*",

@@ -173,7 +173,7 @@ npm run test:sites      # Test on different sites
 - [ ] All tests pass
 - [ ] Production build successful
 - [ ] No console errors
-- [ ] Privacy policy created
+- [ ] Privacy policy hosted at production URL
 - [ ] Store assets prepared (icons, screenshots)
 - [ ] Extension ID added to dashboard configuration
 
