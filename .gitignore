@@ -26,6 +26,7 @@ coverage/
 
 # Chrome extension artifacts
 *.crx
+deal-pop-*.zip
 
 # Misc
 *.local
@@ -40,6 +41,3 @@ coverage/
 /priceUtils.js
 /index.js 
 PUPPETEER_SCRAPER_FILES/
-
-# Documentation (auto-generated or temporary)
-docs/
