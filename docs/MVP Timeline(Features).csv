@@ -1,0 +1,45 @@
+Element,Feature,MVP,Future ,Notes,,,,,,,Feature Area,Feature Description,MVP,Future
+Extension ,Coded for chrome,x,,,,,,,,,?? Product Tracking,,,
+Extension ,icon  appears on retail commerce sites,x,,,,,,,,,,Add and manage product URLs for price tracking,?,
+Extension ,user interface appears when icon is clicked,x,,,,,,,,,,"Auto-detect title, price, and product image",?,
+User dashboard,"Saved item information - item description (captured from site), retailer, current price, goal price, date tracker expires, store name, photo, link to store",x,,,,,,,,,,"Handle variant-based product pages (e.g., sizes, colors)",?,
+User dashboard,"Filter function - by expired, completed",x,,,,,,,,,,"Support for multiple retail domains (Amazon, etc.)",?,
+User dashboard,Access to update personal info - settings ,x,,,,,,,,,,Screenshot fallback with OCR for unstructured sites,,?
+User dashboard,Button to update product tracker,x,,,,,,,,,,Accessibility fallback scraping,,?
+User dashboard,Button to click to site to purchase,x,,,,,,,,,,Product deduplication and canonicalization,,?
+User dashboard,,,,,,,,,,,?? User Alerts,,,
+User dashboard,,,,,,,,,,,,Set a custom price threshold for alerts,?,
+Backend/admin database ,"device and browser data - device type, browser version",x,,,,,,,,,,View active and expired alerts,?,
+Backend/admin database ,"extension use data - sites visited, frequency, actions taken",x,,,,,,,,,,Trigger alerts based on scheduled jobs,?,
+Backend/admin database ,products tracked with all details ,x,,,,,,,,,,In-app alert display,?,
+Backend/admin database ,purchasing signals - clicked from dashboard to buy on site ,x,,,,,,,,,,Email and/or browser push notifications,,?
+Backend/admin database ,"user info - name, email",x,,,,,,,,,,Alert suppression or batching preferences,,?
+Backend/admin database ,user info - socials,,x,,,,,,,,?? Frontend Dashboard (UX/UI),,,
+Workflow,Automated alerts to email and/or SMS,x,,,,,,,,,,Responsive dashboard (mobile + desktop),?,
+Workflow,digital tie to retail affiliate accounts,x,,,,,,,,,,Product list with key details,?,
+,,,,,,,,,,,,Product detail view,?,
+,,,,,,,,,,,,Settings view to update tracking options,?,
+,,,,,,,,,,,,Fallback image for missing thumbnails,?,
+,,,,,,,,,,,,Skeleton loaders and transitions,?,
+,,,,,,,,,,,,Historical price chart (line graph),,?
+,,,,,,,,,,,,"Filter and sort by discount, price, site",,?
+,,,,,,,,,,,,Nav bar alert badge,,?
+,,,,,,,,,,,,Search and keyword filter,,?
+,,,,,,,,,,,?? Authentication & Auth,,,
+,,,,,,,,,,,,"Login with Auth0 (Google, Apple, etc.)",?,
+,,,,,,,,,,,,Token-based session handling,?,
+,,,,,,,,,,,,Backend middleware for token validation,?,
+,,,,,,,,,,,?? Real-Time Updates,,,
+,,,,,,,,,,,,Web PubSub connection for real-time alert updates,?,
+,,,,,,,,,,,,Frontend subscribes to backend changes,?,
+,,,,,,,,,,,,User-initiated update requests over Web PubSub,,?
+,,,,,,,,,,,? Testing & QA,,,
+,,,,,,,,,,,,Unit tests for utilities and key flows,?,
+,,,,,,,,,,,,End-to-end integration testing,,?
+,,,,,,,,,,,,Load and stress testing,,?
+,,,,,,,,,,,,Maintain 90%+ test coverage across codebase,,?
+,,,,,,,,,,,? Deployment & DevOps,,,
+,,,,,,,,,,,,Local development via Docker Compose,?,
+,,,,,,,,,,,,CI/CD with GitHub Actions,?,
+,,,,,,,,,,,,One-click deploy to Railway / Render,?,
+,,,,,,,,,,,,"Observability: monitoring, logs, errors",,?
