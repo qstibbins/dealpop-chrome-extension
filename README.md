@@ -72,7 +72,7 @@ graph TB
 
 ### For Everyone
 - **[Non-Technical Overview](docs/NON_TECHNICAL_OVERVIEW.md)** - What DealPop does in plain English
-- **[Architecture Overview](ARCHITECTURE.md)** - How all components work together
+- **[Architecture Overview](docs/ARCHITECTURE.md)** - How all components work together
 - **[Known Issues](docs/KNOWN_ISSUES.md)** - Current limitations and planned improvements
 
 ### For Developers

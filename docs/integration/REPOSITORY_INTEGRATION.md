@@ -270,7 +270,7 @@ All repositories must use the same Firebase project:
 ## Repository-Specific Documentation
 
 ### Chrome Extension (This Repository)
-- **Architecture**: See `ARCHITECTURE.md`
+- **Architecture**: See `docs/ARCHITECTURE.md`
 - **Development**: See `docs/DEVELOPER_SETUP.md`
 - **API Usage**: See `docs/integration/API_USAGE.md`
 - **Troubleshooting**: See `docs/TROUBLESHOOTING.md`
