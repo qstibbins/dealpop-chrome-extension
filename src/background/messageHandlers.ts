@@ -244,8 +244,42 @@ async function handleAuthSuccess(msg: any, sender: chrome.runtime.MessageSender,
 
     console.log('✅ Auth data stored successfully in Chrome storage');
 
-    // Don't close the tab immediately - let dashboard handle it
-    // The dashboard will close itself after showing success message
+    // Return user to original tab after successful authentication
+    chrome.storage.local.get(['originalTabId'], (result) => {
+      const originalTabId = result.originalTabId;
+      
+      if (originalTabId) {
+        // Check if the original tab still exists
+        chrome.tabs.get(originalTabId, (tab) => {
+          if (!chrome.runtime.lastError && tab) {
+            // Add 2-second delay to let user see the success screen
+            setTimeout(() => {
+              // Close the auth tab first
+              if (sender.tab?.id) {
+                chrome.tabs.remove(sender.tab.id).catch(console.error);
+              }
+              // Then switch to original tab
+              chrome.tabs.update(originalTabId, { active: true });
+              // Clean up the stored tab ID
+              chrome.storage.local.remove(['originalTabId']);
+            }, 2000); // 2 second delay
+          } else {
+            // Just close the auth tab immediately if original tab doesn't exist
+            if (sender.tab?.id) {
+              chrome.tabs.remove(sender.tab.id).catch(console.error);
+            }
+            // Clean up the stored tab ID
+            chrome.storage.local.remove(['originalTabId']);
+          }
+        });
+      } else {
+        // Just close the auth tab
+        if (sender.tab?.id) {
+          chrome.tabs.remove(sender.tab.id).catch(console.error);
+        }
+      }
+    });
+
     console.log('✅ Auth complete - dashboard will close itself');
 
     sendResponse({ success: true });

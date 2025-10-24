@@ -27,12 +27,19 @@ export interface AuthError {
  */
 export async function signInWithGoogle(): Promise<{ user: AuthUser; token: string }> {
   try {
-    debugLog('Opening dashboard for authentication...', EXTENSION_CONFIG.DASHBOARD_URL);
     console.log('🔍 Dashboard URL being opened:', EXTENSION_CONFIG.DASHBOARD_URL);
     
     return new Promise((resolve, reject) => {
-      // Create auth tab
-      chrome.tabs.create({ url: EXTENSION_CONFIG.DASHBOARD_URL }, (tab) => {
+      // Get the current active tab before creating auth tab
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const originalTab = tabs[0];
+        const originalTabId = originalTab?.id;
+        
+        // Store original tab ID in Chrome storage for background script to use
+        chrome.storage.local.set({ originalTabId: originalTabId });
+        
+        // Create auth tab
+        chrome.tabs.create({ url: EXTENSION_CONFIG.DASHBOARD_URL }, (tab) => {
         if (!tab || !tab.id) {
           const error: AuthError = {
             code: 'TAB_CREATION_FAILED',
@@ -44,7 +51,6 @@ export async function signInWithGoogle(): Promise<{ user: AuthUser; token: strin
         }
 
         const tabId = tab.id;
-        debugLog('Auth tab created:', tabId);
         
         // Track if auth is complete to prevent double-handling
         let authCompleted = false;
@@ -59,8 +65,6 @@ export async function signInWithGoogle(): Promise<{ user: AuthUser; token: strin
           if (sender.tab?.id !== tabId) {
             return;
           }
-
-          debugLog('Received message from dashboard:', message.type);
           
           if (message.type === 'EXTENSION_AUTH_SUCCESS' && !authCompleted) {
             authCompleted = true;
@@ -68,11 +72,6 @@ export async function signInWithGoogle(): Promise<{ user: AuthUser; token: strin
             
             // Clean up listener
             chrome.runtime.onMessage.removeListener(messageListener);
-            
-            // Close auth tab
-            chrome.tabs.remove(tabId).catch((err) => {
-              errorLog('Failed to close auth tab:', err);
-            });
             
             // Validate message data
             if (!message.user || !message.token) {
@@ -101,7 +100,6 @@ export async function signInWithGoogle(): Promise<{ user: AuthUser; token: strin
               isAuthenticated: true,
               tokenTimestamp: Date.now() // Track when token was received
             }).then(() => {
-              debugLog('Auth data stored in Chrome storage');
               resolve({ user: authUser, token: message.token });
             }).catch((err) => {
               const error: AuthError = {
@@ -137,7 +135,6 @@ export async function signInWithGoogle(): Promise<{ user: AuthUser; token: strin
             sendResponse({ success: false, error: message.error });
           } else if (message.type === 'EXTENSION_AUTH_CANCELLED' && !authCompleted) {
             authCompleted = true;
-            debugLog('User cancelled authentication');
             
             // Clean up
             chrome.runtime.onMessage.removeListener(messageListener);
@@ -191,6 +188,7 @@ export async function signInWithGoogle(): Promise<{ user: AuthUser; token: strin
         });
       });
     });
+  });
     
   } catch (error) {
     errorLog('Dashboard auth error:', error);
@@ -201,11 +199,8 @@ export async function signInWithGoogle(): Promise<{ user: AuthUser; token: strin
 // Sign out
 export async function signOutUser(): Promise<void> {
   try {
-    debugLog('Starting logout process...');
-    
     // Clear extension's auth state
     await chrome.storage.local.remove(['authToken', 'authUser', 'isAuthenticated', 'tokenTimestamp']);
-    debugLog('Extension auth state cleared');
     
     successLog('Extension logout completed successfully');
     
@@ -218,8 +213,6 @@ export async function signOutUser(): Promise<void> {
 // Clear all auth data (useful for debugging/troubleshooting)
 export async function clearAllAuthData(): Promise<void> {
   try {
-    debugLog('Clearing all authentication data...');
-    
     // Clear all auth-related storage
     await chrome.storage.local.remove([
       'authToken', 
@@ -230,7 +223,6 @@ export async function clearAllAuthData(): Promise<void> {
       'userData'
     ]);
     
-    debugLog('All authentication data cleared');
     successLog('Authentication data cleared successfully');
     
   } catch (error) {
